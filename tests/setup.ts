@@ -29,7 +29,7 @@ beforeEach(async () => {
   const { prisma } = await import('../src/lib/prisma');
   const { redis } = await import('../src/lib/redis');
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Payment", "OrderStatusHistory", "OrderItem", "Order", "CreditTerms", "Counter", "CartItem", "Cart", "ContractorPrice", "BulkDiscount", "ContractorRule", "DistanceSlab", "ServiceablePincode", "ShopSettings", "Address", "ProjectSite", "Product", "Category", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "AuditLog", "Invoice", "Notification", "DeviceToken", "Payment", "OrderStatusHistory", "OrderItem", "Order", "CreditTerms", "Counter", "CartItem", "Cart", "ContractorPrice", "BulkDiscount", "ContractorRule", "DistanceSlab", "ServiceablePincode", "ShopSettings", "Address", "ProjectSite", "Product", "Category", "User" RESTART IDENTITY CASCADE',
   );
   await redis.flushdb();
 });
@@ -37,6 +37,9 @@ beforeEach(async () => {
 afterAll(async () => {
   const { prisma } = await import('../src/lib/prisma');
   const { redis } = await import('../src/lib/redis');
+  // The audit log is written after the response is sent; give those last writes a
+  // moment so the connection is not closed underneath them.
+  await new Promise((resolve) => setTimeout(resolve, 300));
   await prisma.$disconnect();
   redis.disconnect();
 });
