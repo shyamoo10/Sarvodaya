@@ -294,7 +294,7 @@ model ContractorRule {
   name String @unique @db.VarChar(80)
 
   categoryId String?   @db.Uuid
-  category   Category? @relation(fields: [categoryId], references: [id])
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   /// Percentage in basis points: 500 = 5%.
   discountBps Int
