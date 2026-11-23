@@ -19,26 +19,30 @@ enum AccountType {
 }
 
 model User {
-  id           String      @id @default(uuid()) @db.Uuid
-  phone        String      @unique @db.VarChar(10)
-  name         String      @db.VarChar(120)
-  accountType  AccountType @default(CUSTOMER)
+  id          String      @id @default(uuid()) @db.Uuid
+  phone       String      @unique @db.VarChar(10)
+  name        String      @db.VarChar(120)
+  accountType AccountType @default(CUSTOMER)
 
   /// Optional for every account type. Never required to place an order.
-  companyName  String?     @db.VarChar(160)
-  gstNumber    String?     @db.VarChar(15)
+  companyName String? @db.VarChar(160)
+  gstNumber   String? @db.VarChar(15)
 
   /// Admin block flag: when true the account cannot log in and existing tokens stop working.
-  isBlocked    Boolean     @default(false)
-  blockedAt    DateTime?
-  blockedReason String?    @db.VarChar(200)
+  isBlocked     Boolean   @default(false)
+  blockedAt     DateTime?
+  blockedReason String?   @db.VarChar(200)
 
-  lastLoginAt  DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   addresses    Address[]
   projectSites ProjectSite[]
+
+  /// Contractors only: negotiated per-product prices.
+  contractorPrices ContractorPrice[] @relation("ContractorPrices")
+  cart             Cart?
 
   @@index([accountType])
   @@index([isBlocked])
@@ -46,54 +50,56 @@ model User {
 
 /// Saved delivery address (home, shop, site office...).
 model Address {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  label        String?  @db.VarChar(40)
-  contactName  String   @db.VarChar(120)
-  contactPhone String   @db.VarChar(10)
+  label        String? @db.VarChar(40)
+  contactName  String  @db.VarChar(120)
+  contactPhone String  @db.VarChar(10)
 
-  line1        String   @db.VarChar(200)
-  line2        String?  @db.VarChar(200)
-  landmark     String?  @db.VarChar(160)
-  city         String   @db.VarChar(80)
-  state        String   @db.VarChar(80)
-  pincode      String   @db.VarChar(6)
+  line1    String  @db.VarChar(200)
+  line2    String? @db.VarChar(200)
+  landmark String? @db.VarChar(160)
+  city     String  @db.VarChar(80)
+  state    String  @db.VarChar(80)
+  pincode  String  @db.VarChar(6)
 
-  latitude     Float?
-  longitude    Float?
+  latitude  Float?
+  longitude Float?
 
-  isDefault    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  carts Cart[]
 
   @@index([userId])
 }
 
 /// Contractor project site. Customers may use it too (e.g. building a house).
 model ProjectSite {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  siteName     String   @db.VarChar(120)
-  contactName  String?  @db.VarChar(120)
-  contactPhone String?  @db.VarChar(10)
+  siteName     String  @db.VarChar(120)
+  contactName  String? @db.VarChar(120)
+  contactPhone String? @db.VarChar(10)
 
-  line1        String   @db.VarChar(200)
-  line2        String?  @db.VarChar(200)
-  landmark     String?  @db.VarChar(160)
-  city         String   @db.VarChar(80)
-  state        String   @db.VarChar(80)
-  pincode      String   @db.VarChar(6)
+  line1    String  @db.VarChar(200)
+  line2    String? @db.VarChar(200)
+  landmark String? @db.VarChar(160)
+  city     String  @db.VarChar(80)
+  state    String  @db.VarChar(80)
+  pincode  String  @db.VarChar(6)
 
-  latitude     Float?
-  longitude    Float?
-  notes        String?  @db.VarChar(500)
+  latitude  Float?
+  longitude Float?
+  notes     String? @db.VarChar(500)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
@@ -109,22 +115,24 @@ enum ProductUnit {
 /// Categories and sub-categories. `parentId` is null for a top-level category.
 /// Only two levels are supported, so a category with a parent cannot have children.
 model Category {
-  id          String     @id @default(uuid()) @db.Uuid
-  name        String     @db.VarChar(80)
-  slug        String     @unique @db.VarChar(90)
-  description String?    @db.VarChar(300)
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @db.VarChar(80)
+  slug        String  @unique @db.VarChar(90)
+  description String? @db.VarChar(300)
 
-  parentId    String?    @db.Uuid
-  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children    Category[] @relation("CategoryTree")
+  parentId String?    @db.Uuid
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryTree")
 
-  sortOrder   Int        @default(0)
-  isActive    Boolean    @default(true)
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
 
-  products    Product[]
+  products        Product[]
+  bulkDiscounts   BulkDiscount[]
+  contractorRules ContractorRule[]
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([parentId])
 }
@@ -132,31 +140,180 @@ model Category {
 /// A sellable item. Prices are integer paise; everything the shop owner may
 /// change (price, stock, visibility) is editable through admin APIs.
 model Product {
-  id            String      @id @default(uuid()) @db.Uuid
-  sku           String      @unique @db.VarChar(40)
-  name          String      @db.VarChar(160)
-  description   String?     @db.VarChar(1000)
-  brand         String      @db.VarChar(80)
+  id          String  @id @default(uuid()) @db.Uuid
+  sku         String  @unique @db.VarChar(40)
+  name        String  @db.VarChar(160)
+  description String? @db.VarChar(1000)
+  brand       String  @db.VarChar(80)
 
   /// Size / variant label, for example "12 mm" or "20 L pack".
-  sizeVariant   String?     @db.VarChar(80)
-  unit          ProductUnit
+  sizeVariant String?     @db.VarChar(80)
+  unit        ProductUnit
 
   pricePaise    Int
-  stockQuantity Int         @default(0)
-  photos        String[]    @default([])
+  stockQuantity Int      @default(0)
+  photos        String[] @default([])
 
-  categoryId    String      @db.Uuid
-  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  categoryId String   @db.Uuid
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   /// Hidden products stay in the database but disappear from the public API.
-  isActive      Boolean     @default(true)
+  isActive Boolean @default(true)
 
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  contractorPrices ContractorPrice[]
+  bulkDiscounts    BulkDiscount[]
+  cartItems        CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([categoryId])
   @@index([brand])
   @@index([pricePaise])
   @@index([isActive])
+}
+
+/// Shop-wide pricing and delivery settings. A single row, id "default", edited by
+/// the admin: nothing here is hard-coded in the API.
+model ShopSettings {
+  id            String @id @default("default") @db.VarChar(20)
+  shopLatitude  Float
+  shopLongitude Float
+
+  /// Orders below this amount pay a small order charge.
+  minOrderAmountPaise Int @default(0)
+  minOrderChargePaise Int @default(0)
+
+  /// Free delivery when the item total reaches this amount, or when the delivery
+  /// distance is within this radius. Null switches that rule off.
+  freeDeliveryAbovePaise Int?
+  freeDeliveryRadiusKm   Float?
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Distance-based delivery charge, measured from the shop location.
+/// `fromKm` is inclusive, `toKm` exclusive; a null `toKm` means "and beyond".
+model DistanceSlab {
+  id          String  @id @default(uuid()) @db.Uuid
+  fromKm      Float
+  toKm        Float?
+  chargePaise Int
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fromKm])
+}
+
+/// Pincodes the shop delivers to. Coordinates act as the area centre when a
+/// customer's address carries no latitude/longitude of its own.
+model ServiceablePincode {
+  pincode   String  @id @db.VarChar(6)
+  areaName  String? @db.VarChar(120)
+  city      String? @db.VarChar(80)
+  latitude  Float
+  longitude Float
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// A negotiated price for one contractor and one product. Wins over every other
+/// pricing rule.
+model ContractorPrice {
+  id           String @id @default(uuid()) @db.Uuid
+  contractorId String @db.Uuid
+  contractor   User   @relation("ContractorPrices", fields: [contractorId], references: [id], onDelete: Cascade)
+
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  pricePaise Int
+  isActive   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contractorId, productId])
+  @@index([productId])
+}
+
+/// Quantity discount. Scope is a product, a category (including its
+/// sub-categories) or the whole shop when both ids are null.
+model BulkDiscount {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique @db.VarChar(80)
+
+  productId  String?   @db.Uuid
+  product    Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId String?   @db.Uuid
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  minQuantity Int
+  /// Percentage in basis points: 250 = 2.50%.
+  discountBps Int
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([categoryId])
+}
+
+/// Percentage discount for contractor accounts, optionally limited to one
+/// category (its sub-categories included).
+model ContractorRule {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique @db.VarChar(80)
+
+  categoryId String?   @db.Uuid
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  /// Percentage in basis points: 500 = 5%.
+  discountBps Int
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+}
+
+/// One server-side cart per account, so it survives app restarts and reinstalls.
+/// Prices are never stored: lines are priced on every read.
+model Cart {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deliveryAddressId String?  @db.Uuid
+  deliveryAddress   Address? @relation(fields: [deliveryAddressId], references: [id], onDelete: SetNull)
+
+  items CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CartItem {
+  id     String @id @default(uuid()) @db.Uuid
+  cartId String @db.Uuid
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  quantity Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([productId])
 }
