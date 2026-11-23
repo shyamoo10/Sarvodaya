@@ -187,6 +187,11 @@ model Product {
   @@index([brand])
   @@index([pricePaise])
   @@index([isActive])
+  // The public catalogue always filters on isActive and sorts or searches by name.
+  @@index([isActive, name])
+  // `contains` searches are ILIKE '%term%', which a btree cannot serve. The
+  // trigram GIN indexes for name, brand and sku are created in the migration
+  // 20261123123000_search_and_list_indexes; Prisma cannot declare them here.
 }
 
 /// Shop-wide pricing and delivery settings. A single row, id "default", edited by
@@ -289,7 +294,7 @@ model ContractorRule {
   name String @unique @db.VarChar(80)
 
   categoryId String?   @db.Uuid
-  category   Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category   Category? @relation(fields: [categoryId], references: [id])
 
   /// Percentage in basis points: 500 = 5%.
   discountBps Int
@@ -440,7 +445,11 @@ model Order {
   updatedAt     DateTime             @updatedAt
 
   @@unique([userId, idempotencyKey])
+  // A customer's own history: filter by user, newest first. This is also the
+  // index that keeps one account from ever scanning another account's orders.
   @@index([userId, placedAt])
+  // The admin list: filter by status, newest first, and the dashboard counts.
+  @@index([status, placedAt])
   @@index([status])
   @@index([paymentStatus])
   @@index([placedAt])
