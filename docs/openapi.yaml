@@ -6,7 +6,7 @@
 openapi: 3.0.3
 info:
   title: Sarvodaya API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, fasteners, plumbing).
 
@@ -29,6 +29,14 @@ info:
     one-tap reorder, admin charge waivers, and prices frozen at the time of sale. Payment
     is online (Razorpay, signature and webhook verified, never trusted from the client),
     cash on delivery, or pay later on admin-granted contractor credit terms.
+
+    **Step 5**: admin tools, notifications and invoices - a dashboard with today's orders,
+    pending deliveries, low stock and outstanding cash on delivery, admin lists of
+    customers and contractors, Excel downloads of sales and order reports, and an
+    append-only audit log of every admin change. Customers are told about an order
+    being placed, confirmed, dispatched and delivered over push and SMS or WhatsApp,
+    through a database-backed queue with retries. Every order gets a PDF invoice,
+    a tax invoice when the buyer gave a GST number and a plain bill otherwise.
 
     ## Conventions
     * All amounts are integer **paise**, never floats.
@@ -64,8 +72,10 @@ tags:
     description: Checkout, order history, cancellation and one-tap reorder
   - name: Payments
     description: Online (Razorpay), cash on delivery and payment verification
+  - name: Notifications
+    description: Order messages sent to the customer
   - name: Admin
-    description: Shop-owner only endpoints
+    description: Shop-owner only endpoints (dashboard, reports, audit log, catalogue, pricing)
 components:
   securitySchemes:
     bearerAuth:

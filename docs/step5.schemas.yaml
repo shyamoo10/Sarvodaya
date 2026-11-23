@@ -1,0 +1,311 @@
+# Step 5 schemas (dashboard, notifications, invoices, reports, audit), merged by docs.router.ts.
+schemas:
+  DashboardOrderSummary:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      orderNumber:
+        type: string
+        example: SAR-000042
+      status:
+        $ref: '#/components/schemas/OrderStatus'
+      placedAt:
+        type: string
+        format: date-time
+      requestedDeliveryDate:
+        type: string
+        format: date
+        nullable: true
+      deliverySlot:
+        type: string
+        nullable: true
+      pincode:
+        type: string
+      grandTotalPaise:
+        type: integer
+      customer:
+        type: object
+        properties:
+          name:
+            type: string
+          phone:
+            type: string
+
+  LowStockProduct:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      sku:
+        type: string
+      name:
+        type: string
+      brand:
+        type: string
+      category:
+        type: string
+      unit:
+        type: string
+        enum: [kg, bag, piece, litre, box]
+      stockQuantity:
+        type: integer
+
+  AdminDashboard:
+    type: object
+    properties:
+      generatedAt:
+        type: string
+        format: date-time
+      today:
+        type: object
+        properties:
+          date:
+            type: string
+            format: date
+          orders:
+            type: integer
+            description: Orders placed today, whatever their status.
+          cancelledOrders:
+            type: integer
+          salesPaise:
+            type: integer
+            description: Grand total of today's orders that are not cancelled.
+          byStatus:
+            type: object
+            additionalProperties:
+              type: integer
+      pendingDeliveries:
+        type: object
+        properties:
+          count:
+            type: integer
+          orders:
+            type: array
+            description: Soonest requested delivery first.
+            items:
+              $ref: '#/components/schemas/DashboardOrderSummary'
+      lowStock:
+        type: object
+        properties:
+          threshold:
+            type: integer
+          count:
+            type: integer
+          products:
+            type: array
+            items:
+              $ref: '#/components/schemas/LowStockProduct'
+      cashOnDelivery:
+        type: object
+        description: COD orders that still have money due.
+        properties:
+          orders:
+            type: integer
+          outstandingPaise:
+            type: integer
+
+  Notification:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      userId:
+        type: string
+        format: uuid
+      orderId:
+        type: string
+        format: uuid
+        nullable: true
+      event:
+        type: string
+        enum: [ORDER_PLACED, ORDER_CONFIRMED, ORDER_DISPATCHED, ORDER_DELIVERED]
+        description: >-
+          CONFIRMED is sent when the shop starts packing, DISPATCHED when the order
+          leaves the shop and DELIVERED when the buyer receives it.
+      channel:
+        type: string
+        enum: [PUSH, SMS, WHATSAPP]
+      status:
+        type: string
+        enum: [PENDING, SENT, FAILED]
+      title:
+        type: string
+      body:
+        type: string
+      attempts:
+        type: integer
+      maxAttempts:
+        type: integer
+      lastError:
+        type: string
+        nullable: true
+      sentAt:
+        type: string
+        format: date-time
+        nullable: true
+      createdAt:
+        type: string
+        format: date-time
+      user:
+        type: object
+        nullable: true
+        description: Present in the admin list only.
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+          phone:
+            type: string
+
+  DeviceTokenRegistration:
+    type: object
+    required: [token]
+    properties:
+      token:
+        type: string
+        minLength: 8
+        maxLength: 300
+        description: The push token from the device (FCM/APNs), not a phone number.
+      platform:
+        type: string
+        enum: [ANDROID, IOS, WEB]
+        default: ANDROID
+
+  Invoice:
+    type: object
+    description: >-
+      One invoice per order, created with the order. `TAX_INVOICE` when the buyer gave
+      a GST number, otherwise `BILL`.
+    properties:
+      id:
+        type: string
+        format: uuid
+      invoiceNumber:
+        type: string
+        example: SAR-INV-000042
+      kind:
+        type: string
+        enum: [TAX_INVOICE, BILL]
+      orderId:
+        type: string
+        format: uuid
+      buyerGstNumber:
+        type: string
+        nullable: true
+      sellerGstNumber:
+        type: string
+        nullable: true
+      itemTotalPaise:
+        type: integer
+      chargesPaise:
+        type: integer
+      grandTotalPaise:
+        type: integer
+      currency:
+        type: string
+        example: INR
+      issuedAt:
+        type: string
+        format: date-time
+
+  AuditLogEntry:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      action:
+        type: string
+        example: PATCH /admin/products/:id/stock
+      entityType:
+        type: string
+        example: CATALOGUE
+      entityId:
+        type: string
+        nullable: true
+      summary:
+        type: string
+        nullable: true
+      metadata:
+        type: object
+        nullable: true
+        description: The validated request body of the change.
+      actor:
+        type: object
+        nullable: true
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+          phone:
+            type: string
+      ipAddress:
+        type: string
+        nullable: true
+      requestId:
+        type: string
+        nullable: true
+      createdAt:
+        type: string
+        format: date-time
+
+  CustomerSummary:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+      phone:
+        type: string
+      companyName:
+        type: string
+        nullable: true
+      gstNumber:
+        type: string
+        nullable: true
+      isBlocked:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      orders:
+        type: integer
+        description: Non-cancelled orders.
+      totalPurchasesPaise:
+        type: integer
+      amountPaidPaise:
+        type: integer
+      lastOrderAt:
+        type: string
+        format: date-time
+        nullable: true
+
+  ContractorSummary:
+    allOf:
+      - $ref: '#/components/schemas/CustomerSummary'
+      - type: object
+        properties:
+          credit:
+            type: object
+            nullable: true
+            description: Null when the contractor has no credit terms.
+            properties:
+              isEnabled:
+                type: boolean
+              creditLimitPaise:
+                type: integer
+                nullable: true
+              paymentTermDays:
+                type: integer
+              outstandingPaise:
+                type: integer
