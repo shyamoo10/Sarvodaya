@@ -15,6 +15,7 @@ import {
 import { serializeOrder } from './order.serializer';
 import { checkout, getOrderForUser, listOrders } from './orders.service';
 import { cancelOrder, reorder } from './order.actions.service';
+import { getInvoiceForOrder, renderInvoicePdf, serializeInvoice } from '../invoices/invoice.service';
 
 export const ordersRouter = Router();
 
@@ -57,6 +58,32 @@ ordersRouter.get(
   asyncHandler(async (req, res) => {
     const order = await getOrderForUser(req.authUser!, req.params.id as string);
     sendSuccess(res, serializeOrder(order), 200);
+  }),
+);
+
+/** The invoice as a PDF, generated on demand from the order's frozen prices. */
+ordersRouter.get(
+  '/:id/invoice',
+  validate(idParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const order = await getOrderForUser(req.authUser!, req.params.id as string);
+    const pdf = await renderInvoicePdf(order.id);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${pdf.fileName}"`);
+    res.setHeader('Content-Length', String(pdf.buffer.length));
+    res.status(200).send(pdf.buffer);
+  }),
+);
+
+/** The invoice record as JSON, for apps that show their own receipt screen. */
+ordersRouter.get(
+  '/:id/invoice/details',
+  validate(idParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const order = await getOrderForUser(req.authUser!, req.params.id as string);
+    const invoice = await getInvoiceForOrder(order.id);
+    sendSuccess(res, serializeInvoice(invoice), 200);
   }),
 );
 

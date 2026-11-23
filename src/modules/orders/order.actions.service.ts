@@ -4,6 +4,10 @@ import { ApiError } from '../../lib/http';
 import { ErrorCode } from '../../config/error-codes';
 import { buildCartView, getOrCreateCart } from '../cart/cart.service';
 import { findOrderWithRelations, MAX_QUANTITY, type OrderUser } from './orders.service';
+import {
+  queueOrderNotifications,
+  STATUS_EVENT,
+} from '../notifications/notification.service';
 import type {
   CancelOrderInput,
   RecordPaymentInput,
@@ -138,6 +142,13 @@ export async function updateOrderStatus(
       },
     });
   });
+
+  // The customer hears about packing, dispatch and delivery. Duplicate events are
+  // impossible: the queue dedupes on order, event and channel.
+  const event = STATUS_EVENT[input.status];
+  if (event) {
+    await queueOrderNotifications(order.id, event);
+  }
 
   return findOrderWithRelations(order.id);
 }
