@@ -5,7 +5,8 @@ used by customers, contractors and the shop owner (admin).
 
 **Step 1: accounts and login.** **Step 2: product catalogue.**
 **Step 3: pricing, cart and delivery charges.**
-**Step 4 (this branch): orders and payments.**
+**Step 4: orders and payments.**
+**Step 5 (this branch): admin tools, notifications and invoices.**
 
 Accounts and login:
 
@@ -64,9 +65,26 @@ Orders and payments:
   admin grants a contractor. Payment state is `PENDING`, `PARTIALLY_PAID` or `PAID`; the admin
   records cash received, and COD is allowed for every order size.
 
+Admin, notifications and invoices:
+
+* An owner dashboard in one call: today's orders and sales, everything still to be
+  delivered, products running low on stock, and cash-on-delivery money still to collect.
+* Admin lists of customers and contractors with order totals, last order date and — for
+  contractors — credit limit and outstanding balance.
+* Excel downloads: a sales report (one row per order plus a summary sheet) and an order
+  report at item level, for any date range.
+* An append-only audit log of every admin change: who, what, which record, the body that
+  was accepted, the IP and the request id. Reads are never logged.
+* Customer notifications on order placed, confirmed, dispatched and delivered, over push
+  and SMS or WhatsApp, through a database-backed queue with exponential retries, so a
+  provider outage never blocks an order and a restart never loses a message.
+* A PDF invoice for every order, created in the same transaction as the order: a tax
+  invoice with the buyer's GST number when they gave one, a plain bill otherwise, with
+  every charge on its own line.
+
 ## Stack
 
-Node.js 20+ · TypeScript · Express 5 · PostgreSQL 16 · Prisma · Redis · Docker · Vitest + Supertest
+Node.js 20+ · TypeScript · Express 5 · PostgreSQL 16 · Prisma · Redis · PDFKit · ExcelJS · Docker · Vitest + Supertest
 
 Money is stored as integer **paise** throughout the project. Nothing the shop owner may change is
 hard-coded: catalogue prices, stock and categories are data managed through the admin APIs, and
@@ -132,6 +150,15 @@ Everything is declared in [`.env.example`](.env.example). Never commit `.env`.
 | `SEED_SAMPLE_PRODUCTS` | no | default `true`; `false` skips the catalogue seed |
 | `SEED_PRICING` | no | default `true`; `false` skips the pricing, slabs and pincode seed |
 | `SEED_CREDIT_TERMS` | no | default `true`; `false` skips the sample contractor credit terms |
+| `NOTIFICATIONS_ENABLED` | no | default `true`; `false` stops queueing and sending |
+| `NOTIFICATION_CHANNELS` | no | default `PUSH,SMS`; any of `PUSH`, `SMS`, `WHATSAPP` |
+| `NOTIFICATION_MAX_ATTEMPTS` | no | default `5` delivery attempts per message |
+| `NOTIFICATION_RETRY_BASE_SECONDS` | no | default `60`; the backoff doubles per attempt |
+| `NOTIFICATION_POLL_INTERVAL_MS` | no | default `15000`; how often the worker looks for work |
+| `PUSH_PROVIDER_KEY` / `SMS_PROVIDER_KEY` / `WHATSAPP_PROVIDER_KEY` | no | without a key the message is logged instead of sent |
+| `SHOP_NAME` / `SHOP_ADDRESS` / `SHOP_PHONE` | no | printed at the top of every invoice |
+| `SHOP_GST_NUMBER` | no | printed on invoices only when set |
+| `INVOICE_PREFIX` | no | default `SAR-INV`; invoice numbers look like `SAR-INV-000001` |
 | `RAZORPAY_KEY_ID` | for online payment | Razorpay key id, sent to the app as `keyId` |
 | `RAZORPAY_KEY_SECRET` | for online payment | Razorpay key secret, used to verify the checkout signature (never sent to the app) |
 | `RAZORPAY_WEBHOOK_SECRET` | for webhooks | Secret configured in the Razorpay dashboard; without it the webhook endpoint stays closed |
@@ -213,6 +240,20 @@ health check: `/health`.
 | POST | `/admin/orders/{id}/payments` | Bearer + Admin |
 | GET / POST | `/admin/credit-terms` | Bearer + Admin |
 | GET / PATCH / DELETE | `/admin/credit-terms/{id}` | Bearer + Admin |
+| GET | `/orders/{id}/invoice` | Bearer |
+| GET | `/orders/{id}/invoice/details` | Bearer |
+| GET / DELETE | `/me/notifications` | Bearer |
+| POST / DELETE | `/me/notifications/device-tokens` | Bearer |
+| GET | `/admin/dashboard` | Bearer + Admin |
+| GET | `/admin/customers` | Bearer + Admin |
+| GET | `/admin/contractors` | Bearer + Admin |
+| GET | `/admin/reports/sales.xlsx` | Bearer + Admin |
+| GET | `/admin/reports/orders.xlsx` | Bearer + Admin |
+| GET | `/admin/audit-logs` | Bearer + Admin |
+| GET | `/admin/notifications` | Bearer + Admin |
+| POST | `/admin/notifications/process` | Bearer + Admin |
+| POST | `/admin/notifications/{id}/retry` | Bearer + Admin |
+| GET | `/admin/orders/{id}/invoice` | Bearer + Admin |
 | GET / PATCH | `/admin/pricing/settings` | Bearer + Admin |
 | GET / POST | `/admin/pricing/contractor-prices` | Bearer + Admin |
 | PATCH / DELETE | `/admin/pricing/contractor-prices/{id}` | Bearer + Admin |
@@ -298,7 +339,9 @@ payments are online (Razorpay, signature and webhook verified on the server), ca
 pay later on credit terms the admin grants a contractor.
 
 Details, including the exact status flow and the payment rules, are in
-[`docs/orders-and-payments.md`](docs/orders-and-payments.md).
+[`docs/orders-and-payments.md`](docs/orders-and-payments.md). The dashboard, reports,
+audit log, notification queue and invoices are explained in
+[`docs/admin-and-notifications.md`](docs/admin-and-notifications.md).
 
 ## Tests
 
@@ -331,7 +374,13 @@ the admin pricing and delivery APIs including slab overlap and duplicate pincode
 (checkout, frozen prices, the idempotency replay, the last item never being sold twice, cancellation
 restoring stock, forward-only statuses with history, charge waivers and reorder), the payments
 (cash receipts, partial and full payment, Razorpay intents, checkout signature verification and the
-signed webhook), and contractor credit terms (granting, switching off, and the credit limit).
+signed webhook), contractor credit terms (granting, switching off, and the credit limit),
+the admin dashboard (today's orders, pending deliveries, low stock with its threshold, COD
+outstanding), the customer and contractor lists with their totals, the Excel sales and order
+reports including the invalid date range, the audit log (who changed what, reads and failed
+changes not logged, admin only), the notification queue (placed on checkout, confirmed,
+dispatched and delivered, push plus SMS, retries and the admin retry), and invoices (a bill
+without GST, a tax invoice with a buyer GSTIN, the PDF, and the frozen amount).
 
 ## Project structure
 
@@ -357,7 +406,12 @@ src/
   modules/orders/        checkout, order history, cancellation, reorder, status history
   modules/payments/      Razorpay intents, signature verification, webhook, cash receipts
   modules/credit/        contractor credit terms and the outstanding balance
-  modules/admin/         user list, block/unblock
+  modules/dashboard/     the owner's dashboard
+  modules/notifications/ notification queue, worker, channels and device tokens
+  modules/invoices/      invoice records and the PDF renderer
+  modules/reports/       Excel sales and order reports
+  modules/audit/         audit log and the middleware that records admin changes
+  modules/admin/         user list, block/unblock, customers and contractors
   docs/                  Swagger UI + raw OpenAPI (merged from docs/*.yaml)
   types/                 shared TypeScript types
 docs/
@@ -369,6 +423,11 @@ docs/
   delivery.paths.yaml    Step 3 admin delivery paths
   schemas.openapi.yaml   Step 1 and 2 schemas
   step3.schemas.yaml     Step 3 schemas
+  step4.paths.yaml       Step 4 order and payment paths
+  admin-orders.paths.yaml Step 4 admin order and credit paths
+  step4.schemas.yaml     Step 4 schemas
+  step5.paths.yaml       Step 5 dashboard, notifications, invoices, reports, audit
+  step5.schemas.yaml     Step 5 schemas
   CHANGELOG-API.md       per-PR notes for the frontend developer
 tests/                   Vitest + Supertest integration tests
 ```
