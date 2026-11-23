@@ -4,7 +4,8 @@ Backend for **Sarvodaya**, a hardware shop app (TMT steel, cement, paint, nuts, 
 used by customers, contractors and the shop owner (admin).
 
 **Step 1: accounts and login.** **Step 2: product catalogue.**
-**Step 3 (this branch): pricing, cart and delivery charges.**
+**Step 3: pricing, cart and delivery charges.**
+**Step 4 (this branch): orders and payments.**
 
 Accounts and login:
 
@@ -43,6 +44,25 @@ Pricing, cart and delivery:
   cart answers `OUT_OF_DELIVERY_RANGE`.
 * Admins manage all of it through APIs: settings, contractor prices, bulk discounts, contractor
   rules, slabs and pincodes. No code change needed to alter any amount or area.
+
+Orders and payments:
+
+* Checkout turns the stored cart into an order with a delivery address, an optional delivery
+  date or slot, and notes. Prices, charges and the address are frozen on the order, so a later
+  price change never rewrites a past sale.
+* Stock is reduced in the same database transaction as the order, with a conditional update, so
+  two buyers can never both get the last item.
+* An `Idempotency-Key` header makes checkout safe to retry: the same key returns the same order
+  instead of placing a second one.
+* Statuses are `CONFIRMED`, `PACKED`, `OUT_FOR_DELIVERY`, `DELIVERED` and `CANCELLED`. Only the
+  admin moves an order forward, every change is written to its history, and cancelling restores
+  the stock exactly once.
+* Order history, one order detail, and a one-tap reorder that puts the items back in the cart.
+* The admin can waive the minimum order charge or the delivery charge on a single order.
+* Payment is online through Razorpay (the server verifies the checkout signature and the
+  webhook; the client is never trusted), cash on delivery, or pay later on credit terms the
+  admin grants a contractor. Payment state is `PENDING`, `PARTIALLY_PAID` or `PAID`; the admin
+  records cash received, and COD is allowed for every order size.
 
 ## Stack
 
@@ -111,6 +131,11 @@ Everything is declared in [`.env.example`](.env.example). Never commit `.env`.
 | `SEED_SAMPLE_USERS` | no | default `true`; `false` seeds only the admin |
 | `SEED_SAMPLE_PRODUCTS` | no | default `true`; `false` skips the catalogue seed |
 | `SEED_PRICING` | no | default `true`; `false` skips the pricing, slabs and pincode seed |
+| `SEED_CREDIT_TERMS` | no | default `true`; `false` skips the sample contractor credit terms |
+| `RAZORPAY_KEY_ID` | for online payment | Razorpay key id, sent to the app as `keyId` |
+| `RAZORPAY_KEY_SECRET` | for online payment | Razorpay key secret, used to verify the checkout signature (never sent to the app) |
+| `RAZORPAY_WEBHOOK_SECRET` | for webhooks | Secret configured in the Razorpay dashboard; without it the webhook endpoint stays closed |
+| `RAZORPAY_BASE_URL` | no | default `https://api.razorpay.com` |
 
 Generate secrets with:
 
@@ -126,10 +151,8 @@ openssl rand -hex 32
 * Seed catalogue: 21 categories (5 parents) and 33 products with SKUs like `STL-TMT-008` and
   `CEM-ULT-PPC`. Re-running `npm run seed` never duplicates them and never overwrites prices or
   stock the owner has changed.
-* Seed pricing: shop at Pune 18.5204/73.8567, minimum order ₹2,000 with a ₹100 charge, free above
-  ₹15,000 or within 3 km, three slabs (0–5 km ₹100, 5–15 km ₹250, 15–30 km ₹500), six approved
-  pincodes, 5% off cement and 3% off paint for contractors, 3% off from 10 units and 5% off from
-  50 bags of cement, and one contractor special price on TMT steel.
+* Seed credit terms: the sample contractor `9123456780` starts with pay-later terms (₹2,00,000
+  limit, 30 days), so the CREDIT payment method can be tried straight away.
 
 ## Scripts
 
@@ -175,6 +198,21 @@ health check: `/health`.
 | POST | `/cart/items` | Bearer |
 | PATCH / DELETE | `/cart/items/{id}` | Bearer |
 | PUT | `/cart/delivery` | Bearer |
+| GET / POST | `/orders` | Bearer |
+| GET | `/orders/{id}` | Bearer |
+| POST | `/orders/{id}/cancel` | Bearer |
+| POST | `/orders/{id}/reorder` | Bearer |
+| POST | `/orders/{id}/payments/online` | Bearer |
+| POST | `/payments/razorpay/verify` | Bearer |
+| POST | `/payments/razorpay/webhook` | signature |
+| GET | `/admin/orders` | Bearer + Admin |
+| GET | `/admin/orders/{id}` | Bearer + Admin |
+| PATCH | `/admin/orders/{id}/status` | Bearer + Admin |
+| POST | `/admin/orders/{id}/cancel` | Bearer + Admin |
+| POST | `/admin/orders/{id}/waive-charge` | Bearer + Admin |
+| POST | `/admin/orders/{id}/payments` | Bearer + Admin |
+| GET / POST | `/admin/credit-terms` | Bearer + Admin |
+| GET / PATCH / DELETE | `/admin/credit-terms/{id}` | Bearer + Admin |
 | GET / PATCH | `/admin/pricing/settings` | Bearer + Admin |
 | GET / POST | `/admin/pricing/contractor-prices` | Bearer + Admin |
 | PATCH / DELETE | `/admin/pricing/contractor-prices/{id}` | Bearer + Admin |
@@ -250,46 +288,17 @@ the spreadsheet `row` (header is row 1), `sku`, failing `field` and a human `mes
 are saved even when other rows fail, and a re-import never changes `isActive`, so a hidden
 product stays hidden.
 
-## Pricing rules
+## Orders, payments and credit
 
-Each line is priced in this order and the **first match wins** — discounts never stack:
+Checkout turns the stored cart into an order inside one database transaction: prices, charges and
+the delivery address are frozen on the order, stock is reduced with a conditional update so the last
+item is never sold twice, and an `Idempotency-Key` header makes a double tap or a retry return the
+same order. The admin moves the status forward with a full history, cancelling restores stock, and
+payments are online (Razorpay, signature and webhook verified on the server), cash on delivery, or
+pay later on credit terms the admin grants a contractor.
 
-1. **Contractor special price** — an active `ContractorPrice` for this contractor and product.
-2. **Bulk quantity discount** — the best active `BulkDiscount` whose `minQuantity` the line meets.
-   Product rules beat category rules (sub-categories included), category rules beat shop-wide
-   ones; at equal scope the highest `minQuantity` wins, then the highest discount.
-3. **Contractor percentage rule** — an active `ContractorRule` for contractors, either for the
-   product's category (sub-categories included) or shop-wide.
-4. **Normal price** — the catalogue price.
-
-Percentages are stored as basis points (`discountBps`, `500` = 5%) and every discounted price is
-`max(1, round(price × (10000 − bps) / 10000))`, so a price never reaches zero.
-
-## Cart and delivery charges
-
-`GET /cart` prices the stored cart again on every read and returns the lines plus three charge
-lines the app shows separately:
-
-* `ITEM_TOTAL` — the sum of the priced lines.
-* `MIN_ORDER_CHARGE` — added when the item total is below `minOrderAmountPaise`, together with
-  `amountToAvoidChargePaise` so the app can say "add ₹200 more to remove this charge".
-* `DISTANCE_CHARGE` — from the shop location to the cart's delivery address using the active
-  distance slabs. It is `0` when the order is above `freeDeliveryAbovePaise` or the address is
-  within `freeDeliveryRadiusKm`.
-
-`grandTotalPaise` is the item total plus the two charges. The delivery address comes from
-`?addressId`, else the cart's saved address, else the account's default (or newest) address; with
-no address at all the cart still answers `200` with `delivery: null` and
-`requiresDeliveryAddress: true`, and `PUT /cart/delivery` sets it.
-
-Delivery is limited to the **approved pincodes**: an address outside them answers
-`400 PINCODE_NOT_SERVICEABLE`, and one past the last slab answers `400 OUT_OF_DELIVERY_RANGE`
-with the distance in `details.distanceKm`. Both messages are written for customers, not logs.
-
-Everything here is data: the minimum order, its charge, the free-delivery amount and radius, the
-slabs, the pincodes, the contractor prices, the bulk discounts and the contractor rules are all
-managed through `/admin/pricing/*` and `/admin/delivery/*`, so changing any amount or area needs
-no code change.
+Details, including the exact status flow and the payment rules, are in
+[`docs/orders-and-payments.md`](docs/orders-and-payments.md).
 
 ## Tests
 
@@ -317,8 +326,12 @@ per-row error report, hidden products staying hidden, bad files), the pricing or
 bulk, contractor percentage, contractor special price, most specific rule wins, inactive rules
 ignored), the server-side cart (persistence, add/update/remove/clear, hidden products), the
 charges (minimum order with the amount to avoid it, distance slabs, free delivery by amount and
-by radius), the delivery restrictions (unapproved pincode, beyond the last slab, no address), and
-the admin pricing and delivery APIs including slab overlap and duplicate pincodes.
+by radius), the delivery restrictions (unapproved pincode, beyond the last slab, no address),
+the admin pricing and delivery APIs including slab overlap and duplicate pincodes, the orders
+(checkout, frozen prices, the idempotency replay, the last item never being sold twice, cancellation
+restoring stock, forward-only statuses with history, charge waivers and reorder), the payments
+(cash receipts, partial and full payment, Razorpay intents, checkout signature verification and the
+signed webhook), and contractor credit terms (granting, switching off, and the credit limit).
 
 ## Project structure
 
@@ -341,6 +354,9 @@ src/
   modules/pricing/       pricing engine, settings, contractor prices, bulk and contractor rules
   modules/cart/          server-side cart, priced lines and charges
   modules/delivery/      distance slabs, serviceable pincodes, delivery quote
+  modules/orders/        checkout, order history, cancellation, reorder, status history
+  modules/payments/      Razorpay intents, signature verification, webhook, cash receipts
+  modules/credit/        contractor credit terms and the outstanding balance
   modules/admin/         user list, block/unblock
   docs/                  Swagger UI + raw OpenAPI (merged from docs/*.yaml)
   types/                 shared TypeScript types
@@ -363,7 +379,7 @@ tests/                   Vitest + Supertest integration tests
 * CI must be green before merging: `npm install`, `prisma generate`, `prisma migrate deploy`,
   `npm run typecheck`, `npm test`.
 * `package-lock.json` is not committed yet (the first clone generates it). Commit the lockfile
-  once your local install produces it so builds are reproducible; `npm install` and CI honour
-  it automatically.
+  once your local install produces it so later builds are reproducible; `npm install` and CI
+  honour it automatically.
 * Every PR updates `docs/CHANGELOG-API.md`.
 * Secrets only ever live in environment variables; `.env` is git-ignored.
