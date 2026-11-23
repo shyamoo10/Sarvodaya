@@ -1,0 +1,166 @@
+# Root of the OpenAPI contract: info, servers, tags and shared components.
+# Paths live in api.paths.yaml, catalogue.paths.yaml, step3.paths.yaml, pricing.paths.yaml and
+# delivery.paths.yaml; schemas in schemas.openapi.yaml and step3.schemas.yaml. docs.router.ts
+# merges them into the document served at /docs.
+openapi: 3.0.3
+info:
+  title: Sarvodaya API
+  version: 1.2.0
+  description: |
+    Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, fasteners, plumbing).
+
+    **Step 1**: accounts and login - phone + OTP (no passwords), Customer/Contractor sign-up,
+    admin accounts from the seed script only, profile, saved addresses, project sites, admin block.
+
+    **Step 2**: the product catalogue - categories and sub-categories, products with brand,
+    size/variant, unit, photos and stock, a public searchable list, admin management and a bulk
+    Excel import.
+
+    **Step 3**: automatic pricing (contractor special price, bulk quantity discount, contractor
+    percentage rule, then the normal price), a server-side cart whose charges are returned as
+    separate lines (item total, minimum-order charge, distance charge, grand total) and delivery
+    limited to approved pincodes. Every amount, slab and pincode is admin-managed data.
+
+    ## Conventions
+    * All amounts are integer **paise**, never floats.
+    * Success: `{ "success": true, "data": ..., "meta"?: { page, limit, total, totalPages } }`
+      (`meta` only on paginated responses).
+    * Error: `{ "success": false, "error": { "code", "message", "details"? }, "requestId" }`.
+      Switch on `error.code`; it is stable. `error.message` is for humans and may change.
+    * Phones are 10 digit Indian mobile numbers; `accountType` is CUSTOMER, CONTRACTOR or ADMIN.
+    * `companyName` and `gstNumber` are always optional.
+
+    ## Development OTP
+    Outside production the API accepts the fixed OTP `123456` (`DEV_FIXED_OTP`) and echoes it as
+    `devOtp` in the request-OTP response. It is hard-disabled in production.
+  contact:
+    name: Sarvodaya API team
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+tags:
+  - name: Auth
+    description: OTP login
+  - name: Profile
+    description: Current user profile
+  - name: Addresses
+    description: Saved delivery addresses
+  - name: Project sites
+    description: Contractor project sites
+  - name: Catalogue
+    description: Categories and products (public browsing)
+  - name: Cart
+    description: Server-side cart, priced with the shop's rules and delivery charges
+  - name: Admin
+    description: Shop-owner only endpoints
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    ProductSearch:
+      name: search
+      in: query
+      description: Matches product name, brand or SKU (case insensitive).
+      schema:
+        type: string
+        maxLength: 100
+    ProductCategory:
+      name: category
+      in: query
+      description: |
+        Category slug. A top-level slug also includes its sub-categories; an unknown slug returns
+        an empty page.
+      schema:
+        type: string
+        maxLength: 90
+    ProductBrand:
+      name: brand
+      in: query
+      description: Exact brand match, case insensitive.
+      schema:
+        type: string
+        maxLength: 80
+    MinPricePaise:
+      name: minPricePaise
+      in: query
+      description: Inclusive lower price bound, in paise.
+      schema:
+        type: integer
+        minimum: 0
+    MaxPricePaise:
+      name: maxPricePaise
+      in: query
+      description: Inclusive upper price bound, in paise.
+      schema:
+        type: integer
+        minimum: 0
+    InStock:
+      name: inStock
+      in: query
+      description: '`true` returns products with stock, `false` only out-of-stock products.'
+      schema:
+        type: boolean
+    IsActive:
+      name: isActive
+      in: query
+      description: Admin only. `false` lists hidden products.
+      schema:
+        type: boolean
+    ProductSort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [newest, price_asc, price_desc, name_asc]
+        default: newest
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: UNAUTHORIZED - missing, invalid or expired token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: FORBIDDEN - blocked account or missing permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: NOT_FOUND - record not found or hidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+paths: {}

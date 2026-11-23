@@ -1,0 +1,430 @@
+# Step 2 catalogue paths, merged into openapi.yaml by docs.router.ts.
+paths:
+  /categories:
+    get:
+      tags:
+      - Catalogue
+      summary: Category tree
+      description: 'Active top-level categories with their sub-categories, ordered by `sortOrder` then
+        name.
+
+        `productCount` counts the visible products in that category only, not its sub-categories.'
+      responses:
+        '200':
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/CategoryNode'
+  /products:
+    get:
+      tags:
+      - Catalogue
+      summary: Browse products
+      description: 'The public catalogue. Hidden products never appear and stock is exposed only as
+        `inStock`. Filters combine with AND; an unknown `category` slug returns an empty page, not
+        an error.'
+      parameters:
+      - $ref: '#/components/parameters/ProductSearch'
+      - $ref: '#/components/parameters/ProductCategory'
+      - $ref: '#/components/parameters/ProductBrand'
+      - $ref: '#/components/parameters/MinPricePaise'
+      - $ref: '#/components/parameters/MaxPricePaise'
+      - $ref: '#/components/parameters/InStock'
+      - $ref: '#/components/parameters/ProductSort'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Product page
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Product'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+  /products/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+      - Catalogue
+      summary: Product detail
+      description: A hidden product answers 404, exactly like an unknown id.
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/categories:
+    get:
+      tags:
+      - Admin
+      summary: List categories including hidden ones
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/CategoryNode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Create a category or sub-category
+      description: 'Two levels only: omit `parentId` for a top-level category, set it for a sub-category.
+        A sub-category cannot have children (VALIDATION_ERROR). Names must be unique among siblings
+        (DUPLICATE_CATEGORY). `slug` is generated from the name when omitted.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreateRequest'
+      responses:
+        '201':
+          description: Created category
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CategoryNode'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DUPLICATE_CATEGORY
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/categories/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Admin
+      summary: Update a category
+      description: 'Send only the fields to change. `isActive: false` hides a category from the public
+        catalogue without deleting anything.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdateRequest'
+      responses:
+        '200':
+          description: Updated category
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CategoryNode'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: DUPLICATE_CATEGORY
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags:
+      - Admin
+      summary: Delete an empty category
+      description: 'Only categories with no products and no sub-categories can be deleted; otherwise
+        409 CATEGORY_IN_USE. Hide the category instead.'
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: CATEGORY_IN_USE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/products:
+    get:
+      tags:
+      - Admin
+      summary: List all products including hidden ones
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/ProductSearch'
+      - $ref: '#/components/parameters/ProductCategory'
+      - $ref: '#/components/parameters/ProductBrand'
+      - $ref: '#/components/parameters/MinPricePaise'
+      - $ref: '#/components/parameters/MaxPricePaise'
+      - $ref: '#/components/parameters/InStock'
+      - $ref: '#/components/parameters/IsActive'
+      - $ref: '#/components/parameters/ProductSort'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Product page with stock and visibility
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/AdminProduct'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Add a product
+      description: '`pricePaise` is an integer in paise (68.50 rupees -> 6850). `sku` is stored uppercase
+        and must be unique. `photos` are URLs, at most 10.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreateRequest'
+      responses:
+        '201':
+          description: Created product
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminProduct'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: SKU_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/products/import:
+    post:
+      tags:
+      - Admin
+      summary: Bulk import products from Excel
+      description: |
+        Upload an `.xlsx` file (max 5 MB) in the multipart field `file`. Only the first worksheet
+        is read, up to 5000 rows. Header names are matched case-insensitively.
+
+        Required columns: `sku`, `name`, `category`, `brand`, `unit`, `price`.
+        Optional columns: `size_variant`, `stock`, `description`, `photos`.
+
+        * `price` is in **rupees** and stored as paise (345.50 -> 34550)
+        * `unit` is kg, bag, piece, litre or box
+        * `category` accepts a slug (`tmt-bars`), a name (`TMT Bars`), a path
+          (`Steel > TMT Bars`) or a sub-category name unique across the shop
+        * `photos` is a comma separated list of URLs
+
+        Rows are matched by SKU, so re-running a sheet updates products instead of duplicating
+        them. Valid rows are saved even when other rows fail, and each failure is reported with
+        its spreadsheet row number and column. Re-importing a hidden product updates it but keeps
+        it hidden.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import report (the request succeeds even when single rows fail)
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ImportReport'
+        '400':
+          description: 'INVALID_IMPORT_FILE: missing file, not .xlsx, unreadable, or missing columns.
+            Nothing is imported.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/products/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+      - Admin
+      summary: Product detail including hidden products
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminProduct'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Admin
+      summary: Edit or hide a product
+      description: 'Send only the fields to change. The SKU cannot be changed (bulk imports rely on
+        it). `isActive: false` hides the product from the public catalogue without deleting it.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdateRequest'
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminProduct'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/products/{id}/stock:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Admin
+      summary: Change stock
+      description: 'Send exactly one of `stockQuantity` (absolute new value) or `adjustment` (relative
+        change, e.g. -2 after a sale or 50 after a delivery). Stock can never go below zero.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockUpdateRequest'
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminProduct'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
