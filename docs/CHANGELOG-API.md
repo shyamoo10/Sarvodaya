@@ -5,6 +5,78 @@ Every pull request updates this file.
 
 ---
 
+## Step 3 - Pricing, cart and delivery charges
+
+**Branch:** `step-3-pricing-cart`
+**Version:** v1.2.0
+
+### Added endpoints
+
+| Method | Path | Auth | Purpose |
+| ------ | ---- | ---- | ------- |
+| GET | `/api/v1/cart` | Bearer | Priced cart with every charge as its own line |
+| DELETE | `/api/v1/cart` | Bearer | Empty the cart |
+| POST | `/api/v1/cart/items` | Bearer | Add a product (adds to the quantity if already there) |
+| PATCH | `/api/v1/cart/items/{id}` | Bearer | Set a line's quantity |
+| DELETE | `/api/v1/cart/items/{id}` | Bearer | Remove a line |
+| PUT | `/api/v1/cart/delivery` | Bearer | Choose (or clear) the delivery address for this cart |
+| GET / PATCH | `/api/v1/admin/pricing/settings` | Bearer + Admin | Minimum order, charges, free-delivery rules, shop location |
+| GET / POST | `/api/v1/admin/pricing/contractor-prices` | Bearer + Admin | Per-contractor special prices |
+| PATCH / DELETE | `/api/v1/admin/pricing/contractor-prices/{id}` | Bearer + Admin | Change or remove one |
+| GET / POST | `/api/v1/admin/pricing/bulk-discounts` | Bearer + Admin | Bulk quantity discounts |
+| PATCH / DELETE | `/api/v1/admin/pricing/bulk-discounts/{id}` | Bearer + Admin | Change or remove one |
+| GET / POST | `/api/v1/admin/pricing/contractor-rules` | Bearer + Admin | Contractor percentage rules |
+| PATCH / DELETE | `/api/v1/admin/pricing/contractor-rules/{id}` | Bearer + Admin | Change or remove one |
+| GET / POST | `/api/v1/admin/delivery/slabs` | Bearer + Admin | Distance slabs from the shop |
+| PATCH / DELETE | `/api/v1/admin/delivery/slabs/{id}` | Bearer + Admin | Change or remove one |
+| GET / POST | `/api/v1/admin/delivery/pincodes` | Bearer + Admin | Approved delivery pincodes |
+| PATCH / DELETE | `/api/v1/admin/delivery/pincodes/{pincode}` | Bearer + Admin | Change, deactivate or remove one |
+
+### Error codes introduced
+
+`PINCODE_NOT_SERVICEABLE` (400, delivery address outside the approved pincodes),
+`OUT_OF_DELIVERY_RANGE` (400, address beyond the last distance slab),
+`DELIVERY_SLAB_OVERLAP` (409, a slab that overlaps an active one),
+`DUPLICATE_PINCODE` (409, pincode already approved),
+`CONTRACTOR_PRICE_EXISTS` (409, that contractor already has a price for that product).
+
+### Notes for the frontend
+
+* **Prices are never cached in the cart.** Every `GET /cart` prices the lines again, so a price
+  change or a new rule shows up immediately. Do not store `unitPricePaise` as the truth.
+* Pricing order, first match wins (discounts never stack): contractor special price, then bulk
+  quantity discount, then contractor percentage rule, then the normal price. Each line returns
+  `originalPricePaise`, `unitPricePaise` and `appliedRule`
+  (`{ type, id, label }`, type is one of `CONTRACTOR_SPECIAL_PRICE`, `BULK_DISCOUNT`,
+  `CONTRACTOR_PERCENTAGE`, `NORMAL_PRICE`). Show the label next to the strike-through original
+  price - it is already written for customers ("Your contractor price", "Buy 10 or more - 3% off").
+* `charges` is always three lines in a fixed order: `ITEM_TOTAL`, `MIN_ORDER_CHARGE`,
+  `DISTANCE_CHARGE`, each `{ code, label, amountPaise, amountToAvoidChargePaise }`. Render them
+  under the item total; `grandTotalPaise` already includes all of them.
+* `MIN_ORDER_CHARGE.amountToAvoidChargePaise` is what to show as "Add ₹200 more to remove this
+  charge". It is `null` when the charge does not apply. `minOrder` repeats the same information
+  with the admin's threshold.
+* When `requiresDeliveryAddress` is `true` the cart has items but the account has no address:
+  ask for one and call `PUT /cart/delivery`, then show the delivery charge. `delivery` is `null`
+  in that state and the distance charge is `0`, so the total is not final.
+* `delivery` explains the delivery: `{ addressId, pincode, distanceKm, isFreeDelivery,
+  freeDeliveryReason }`; `freeDeliveryReason` is `ORDER_ABOVE_AMOUNT` or `WITHIN_RADIUS`. Show
+  "Free delivery" with that reason.
+* Unapproved pincode -> `400 PINCODE_NOT_SERVICEABLE` (message names the pincode; ask for another
+  address). Beyond the last slab -> `400 OUT_OF_DELIVERY_RANGE` with `details.distanceKm`.
+  Both are shown as a polite notice, not a generic failure.
+* Adding a hidden product, or a product the shop hid after it was added, is not silently
+  dropped: the line stays with `isAvailable: false` so the app can warn. `inStock` is still
+  returned per line.
+* Quantities are whole numbers 1-999; adding a product already in the cart increases the
+  quantity. All cart endpoints return the whole cart, so one response refreshes the screen.
+* Admin amounts are integer paise and percentages are `discountBps` (basis points, `500` = 5%);
+  the admin shapes also return `discountPercent` for display.
+* The cart is stored on the server per account, so it survives app restarts, reinstalls and
+  device changes.
+
+---
+
 ## Step 2 - Product catalogue
 
 **Branch:** `step-2-products`
