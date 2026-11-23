@@ -1,0 +1,613 @@
+# Step 3 schemas (pricing, cart, delivery), merged into openapi.yaml by docs.router.ts.
+schemas:
+  AppliedRule:
+    type: object
+    description: 'Which pricing rule set this unit price. `id` is null for NORMAL_PRICE.'
+    properties:
+      type:
+        type: string
+        enum:
+          - CONTRACTOR_SPECIAL_PRICE
+          - BULK_DISCOUNT
+          - CONTRACTOR_PERCENTAGE
+          - NORMAL_PRICE
+      id:
+        type: string
+        format: uuid
+        nullable: true
+      label:
+        type: string
+        example: Cement contractor discount
+    required: [type, id, label]
+
+  CartLine:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      productId:
+        type: string
+        format: uuid
+      sku:
+        type: string
+      name:
+        type: string
+      brand:
+        type: string
+      sizeVariant:
+        type: string
+        nullable: true
+      unit:
+        type: string
+        enum: [kg, bag, piece, litre, box]
+      photos:
+        type: array
+        items:
+          type: string
+      quantity:
+        type: integer
+        minimum: 1
+        maximum: 999
+      originalPricePaise:
+        type: integer
+        description: The catalogue price for one unit, before any rule.
+      unitPricePaise:
+        type: integer
+        description: The price actually charged for one unit.
+      lineTotalPaise:
+        type: integer
+        description: unitPricePaise x quantity.
+      appliedRule:
+        $ref: '#/components/schemas/AppliedRule'
+      inStock:
+        type: boolean
+      isAvailable:
+        type: boolean
+        description: False when the shop has hidden the product since it was added.
+    required:
+      - id
+      - productId
+      - quantity
+      - originalPricePaise
+      - unitPricePaise
+      - lineTotalPaise
+      - appliedRule
+
+  ChargeLine:
+    type: object
+    description: One charge on the cart, so the app can show each of them separately.
+    properties:
+      code:
+        type: string
+        enum: [ITEM_TOTAL, MIN_ORDER_CHARGE, DISTANCE_CHARGE]
+      label:
+        type: string
+        example: Minimum order charge
+      amountPaise:
+        type: integer
+      amountToAvoidChargePaise:
+        type: integer
+        nullable: true
+        description: 'Only on MIN_ORDER_CHARGE: how much more to add to remove the charge.'
+    required: [code, label, amountPaise, amountToAvoidChargePaise]
+
+  MinOrderInfo:
+    type: object
+    properties:
+      thresholdPaise:
+        type: integer
+        description: Admin-set minimum order amount.
+      chargePaise:
+        type: integer
+        description: Admin-set charge added below that amount.
+      isBelowThreshold:
+        type: boolean
+      amountToAvoidChargePaise:
+        type: integer
+        nullable: true
+    required: [thresholdPaise, chargePaise, isBelowThreshold, amountToAvoidChargePaise]
+
+  DeliveryQuote:
+    type: object
+    nullable: true
+    description: Null until the account has a delivery address.
+    properties:
+      addressId:
+        type: string
+        format: uuid
+        nullable: true
+      pincode:
+        type: string
+        example: '411045'
+      distanceKm:
+        type: number
+        example: 8.5
+      isFreeDelivery:
+        type: boolean
+      freeDeliveryReason:
+        type: string
+        nullable: true
+        enum: [ORDER_ABOVE_AMOUNT, WITHIN_RADIUS]
+    required: [pincode, distanceKm, isFreeDelivery, freeDeliveryReason]
+
+  CartView:
+    type: object
+    properties:
+      cartId:
+        type: string
+        format: uuid
+      items:
+        type: array
+        items:
+          $ref: '#/components/schemas/CartLine'
+      itemCount:
+        type: integer
+      totalQuantity:
+        type: integer
+      itemTotalPaise:
+        type: integer
+      charges:
+        type: array
+        description: 'Always three lines in this order: ITEM_TOTAL, MIN_ORDER_CHARGE, DISTANCE_CHARGE.'
+        items:
+          $ref: '#/components/schemas/ChargeLine'
+      minOrder:
+        $ref: '#/components/schemas/MinOrderInfo'
+      delivery:
+        $ref: '#/components/schemas/DeliveryQuote'
+      requiresDeliveryAddress:
+        type: boolean
+        description: True when the cart has items but no address, so delivery is not quoted yet.
+      grandTotalPaise:
+        type: integer
+        description: itemTotalPaise + MIN_ORDER_CHARGE + DISTANCE_CHARGE.
+      currency:
+        type: string
+        example: INR
+      updatedAt:
+        type: string
+        format: date-time
+
+  AddCartItemRequest:
+    type: object
+    required: [productId]
+    properties:
+      productId:
+        type: string
+        format: uuid
+      quantity:
+        type: integer
+        minimum: 1
+        maximum: 999
+        default: 1
+
+  UpdateCartItemRequest:
+    type: object
+    required: [quantity]
+    properties:
+      quantity:
+        type: integer
+        minimum: 1
+        maximum: 999
+
+  SetCartDeliveryRequest:
+    type: object
+    required: [addressId]
+    properties:
+      addressId:
+        type: string
+        format: uuid
+        nullable: true
+        description: One of the caller's saved addresses, or null to clear it.
+
+  ShopSettings:
+    type: object
+    properties:
+      shopLatitude:
+        type: number
+      shopLongitude:
+        type: number
+      minOrderAmountPaise:
+        type: integer
+      minOrderChargePaise:
+        type: integer
+      freeDeliveryAbovePaise:
+        type: integer
+        nullable: true
+      freeDeliveryRadiusKm:
+        type: number
+        nullable: true
+      updatedAt:
+        type: string
+        format: date-time
+
+  UpdateShopSettingsRequest:
+    type: object
+    description: Send only the settings to change.
+    minProperties: 1
+    properties:
+      shopLatitude:
+        type: number
+        minimum: -90
+        maximum: 90
+      shopLongitude:
+        type: number
+        minimum: -180
+        maximum: 180
+      minOrderAmountPaise:
+        type: integer
+        minimum: 0
+      minOrderChargePaise:
+        type: integer
+        minimum: 0
+      freeDeliveryAbovePaise:
+        type: integer
+        minimum: 0
+        nullable: true
+      freeDeliveryRadiusKm:
+        type: number
+        minimum: 0
+        maximum: 200
+        nullable: true
+
+  ContractorPrice:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      contractorId:
+        type: string
+        format: uuid
+      productId:
+        type: string
+        format: uuid
+      pricePaise:
+        type: integer
+      isActive:
+        type: boolean
+      product:
+        type: object
+        properties:
+          id:
+            type: string
+            format: uuid
+          sku:
+            type: string
+          name:
+            type: string
+          brand:
+            type: string
+          sizeVariant:
+            type: string
+            nullable: true
+          unit:
+            type: string
+          pricePaise:
+            type: integer
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+
+  CreateContractorPriceRequest:
+    type: object
+    required: [contractorId, productId, pricePaise]
+    properties:
+      contractorId:
+        type: string
+        format: uuid
+        description: Must be an account with accountType CONTRACTOR.
+      productId:
+        type: string
+        format: uuid
+      pricePaise:
+        type: integer
+        minimum: 1
+      isActive:
+        type: boolean
+        default: true
+
+  UpdateContractorPriceRequest:
+    type: object
+    minProperties: 1
+    properties:
+      pricePaise:
+        type: integer
+        minimum: 1
+      isActive:
+        type: boolean
+
+  BulkDiscount:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+      productId:
+        type: string
+        format: uuid
+        nullable: true
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      category:
+        type: object
+        nullable: true
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+          slug:
+            type: string
+      minQuantity:
+        type: integer
+      discountBps:
+        type: integer
+        description: Percentage in basis points; 300 = 3%.
+      discountPercent:
+        type: number
+        example: 3
+      isActive:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+
+  CreateBulkDiscountRequest:
+    type: object
+    required: [name, minQuantity, discountBps]
+    description: 'Scope it to a product, a category (children included) or the whole shop by sending neither id.'
+    properties:
+      name:
+        type: string
+        minLength: 2
+        maxLength: 80
+      productId:
+        type: string
+        format: uuid
+        nullable: true
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      minQuantity:
+        type: integer
+        minimum: 1
+      discountBps:
+        type: integer
+        minimum: 1
+        maximum: 10000
+      isActive:
+        type: boolean
+        default: true
+
+  UpdateBulkDiscountRequest:
+    type: object
+    minProperties: 1
+    properties:
+      name:
+        type: string
+      productId:
+        type: string
+        format: uuid
+        nullable: true
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      minQuantity:
+        type: integer
+        minimum: 1
+      discountBps:
+        type: integer
+        minimum: 1
+        maximum: 10000
+      isActive:
+        type: boolean
+
+  ContractorRule:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      category:
+        type: object
+        nullable: true
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+          slug:
+            type: string
+      discountBps:
+        type: integer
+      discountPercent:
+        type: number
+      isActive:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+
+  CreateContractorRuleRequest:
+    type: object
+    required: [name, discountBps]
+    properties:
+      name:
+        type: string
+        minLength: 2
+        maxLength: 80
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+        description: Omit or null to discount every category.
+      discountBps:
+        type: integer
+        minimum: 1
+        maximum: 10000
+      isActive:
+        type: boolean
+        default: true
+
+  UpdateContractorRuleRequest:
+    type: object
+    minProperties: 1
+    properties:
+      name:
+        type: string
+      categoryId:
+        type: string
+        format: uuid
+        nullable: true
+      discountBps:
+        type: integer
+        minimum: 1
+        maximum: 10000
+      isActive:
+        type: boolean
+
+  DistanceSlab:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      fromKm:
+        type: number
+      toKm:
+        type: number
+        nullable: true
+        description: Null means and beyond.
+      chargePaise:
+        type: integer
+      isActive:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+
+  CreateSlabRequest:
+    type: object
+    required: [fromKm, chargePaise]
+    properties:
+      fromKm:
+        type: number
+        minimum: 0
+      toKm:
+        type: number
+        minimum: 0
+        nullable: true
+      chargePaise:
+        type: integer
+        minimum: 0
+      isActive:
+        type: boolean
+        default: true
+
+  UpdateSlabRequest:
+    type: object
+    minProperties: 1
+    properties:
+      fromKm:
+        type: number
+        minimum: 0
+      toKm:
+        type: number
+        minimum: 0
+        nullable: true
+      chargePaise:
+        type: integer
+        minimum: 0
+      isActive:
+        type: boolean
+
+  ServiceablePincode:
+    type: object
+    properties:
+      pincode:
+        type: string
+        example: '411045'
+      areaName:
+        type: string
+        nullable: true
+      city:
+        type: string
+        nullable: true
+      latitude:
+        type: number
+      longitude:
+        type: number
+      isActive:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+
+  CreatePincodeRequest:
+    type: object
+    required: [pincode, latitude, longitude]
+    properties:
+      pincode:
+        type: string
+        pattern: '^[1-9][0-9]{5}$'
+      areaName:
+        type: string
+        nullable: true
+      city:
+        type: string
+        nullable: true
+      latitude:
+        type: number
+      longitude:
+        type: number
+      isActive:
+        type: boolean
+        default: true
+
+  UpdatePincodeRequest:
+    type: object
+    minProperties: 1
+    properties:
+      areaName:
+        type: string
+        nullable: true
+      city:
+        type: string
+        nullable: true
+      latitude:
+        type: number
+      longitude:
+        type: number
+      isActive:
+        type: boolean
