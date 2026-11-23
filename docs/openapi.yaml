@@ -1,11 +1,12 @@
 # Root of the OpenAPI contract: info, servers, tags and shared components.
-# Paths live in api.paths.yaml, catalogue.paths.yaml, step3.paths.yaml, pricing.paths.yaml and
-# delivery.paths.yaml; schemas in schemas.openapi.yaml and step3.schemas.yaml. docs.router.ts
-# merges them into the document served at /docs.
+# Paths live in api.paths.yaml, catalogue.paths.yaml, step3.paths.yaml, pricing.paths.yaml,
+# delivery.paths.yaml, step4.paths.yaml and admin-orders.paths.yaml; schemas in
+# schemas.openapi.yaml, step3.schemas.yaml and step4.schemas.yaml. docs.router.ts merges them
+# into the document served at /docs.
 openapi: 3.0.3
 info:
   title: Sarvodaya API
-  version: 1.2.0
+  version: 1.3.0
   description: |
     Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, fasteners, plumbing).
 
@@ -20,6 +21,14 @@ info:
     percentage rule, then the normal price), a server-side cart whose charges are returned as
     separate lines (item total, minimum-order charge, distance charge, grand total) and delivery
     limited to approved pincodes. Every amount, slab and pincode is admin-managed data.
+
+    **Step 4**: orders and payments - checkout with a delivery date or slot and notes,
+    stock reduced in the same transaction so the last item is never sold twice, an
+    `Idempotency-Key` so a double tap does not place two orders, statuses changed only by
+    the admin with a history log, cancellation that restores stock, order history and
+    one-tap reorder, admin charge waivers, and prices frozen at the time of sale. Payment
+    is online (Razorpay, signature and webhook verified, never trusted from the client),
+    cash on delivery, or pay later on admin-granted contractor credit terms.
 
     ## Conventions
     * All amounts are integer **paise**, never floats.
@@ -51,6 +60,10 @@ tags:
     description: Categories and products (public browsing)
   - name: Cart
     description: Server-side cart, priced with the shop's rules and delivery charges
+  - name: Orders
+    description: Checkout, order history, cancellation and one-tap reorder
+  - name: Payments
+    description: Online (Razorpay), cash on delivery and payment verification
   - name: Admin
     description: Shop-owner only endpoints
 components:
