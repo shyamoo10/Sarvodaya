@@ -17,6 +17,7 @@ import {
 } from './order.schemas';
 import { serializeOrder } from './order.serializer';
 import { getOrderForUser, listOrders } from './orders.service';
+import { renderInvoicePdf } from '../invoices/invoice.service';
 import { cancelOrder, recordPayment, updateOrderStatus, waiveCharge } from './order.actions.service';
 
 export const adminOrdersRouter = Router();
@@ -40,6 +41,20 @@ adminOrdersRouter.get(
         totalPages: Math.ceil(result.total / result.limit),
       },
     );
+  }),
+);
+
+adminOrdersRouter.get(
+  '/:id/invoice',
+  validate(idParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const order = await getOrderForUser(req.authUser!, req.params.id as string);
+    const pdf = await renderInvoicePdf(order.id);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${pdf.fileName}"`);
+    res.setHeader('Content-Length', String(pdf.buffer.length));
+    res.status(200).send(pdf.buffer);
   }),
 );
 

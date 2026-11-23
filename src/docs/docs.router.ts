@@ -25,9 +25,11 @@ function readYaml<T>(file: string): T {
  *  - `delivery.paths.yaml`     Step 3 admin delivery paths
  *  - `step4.paths.yaml`        Step 4 order and payment paths
  *  - `admin-orders.paths.yaml` Step 4 admin order and credit paths
+ *  - `step5.paths.yaml`        Step 5 dashboard, notifications, invoices, reports and audit
  *  - `schemas.openapi.yaml`    Step 1 and 2 component schemas
  *  - `step3.schemas.yaml`      Step 3 schemas
  *  - `step4.schemas.yaml`      Step 4 schemas
+ *  - `step5.schemas.yaml`      Step 5 schemas
  *
  * They are merged here so `/docs` and `/docs/openapi.yaml` serve one complete document.
  */
@@ -40,9 +42,11 @@ function loadSpec(): Record<string, unknown> {
   const delivery = readYaml<PathsPart>(path.join(docsDir, 'delivery.paths.yaml'));
   const stepFour = readYaml<PathsPart>(path.join(docsDir, 'step4.paths.yaml'));
   const adminOrders = readYaml<PathsPart>(path.join(docsDir, 'admin-orders.paths.yaml'));
+  const stepFive = readYaml<PathsPart>(path.join(docsDir, 'step5.paths.yaml'));
   const schemas = readYaml<SchemasPart>(path.join(docsDir, 'schemas.openapi.yaml'));
   const stepThreeSchemas = readYaml<SchemasPart>(path.join(docsDir, 'step3.schemas.yaml'));
   const stepFourSchemas = readYaml<SchemasPart>(path.join(docsDir, 'step4.schemas.yaml'));
+  const stepFiveSchemas = readYaml<SchemasPart>(path.join(docsDir, 'step5.schemas.yaml'));
 
   const components = (spec.components ?? {}) as Record<string, unknown>;
   spec.components = {
@@ -51,6 +55,7 @@ function loadSpec(): Record<string, unknown> {
       ...(schemas.schemas ?? {}),
       ...(stepThreeSchemas.schemas ?? {}),
       ...(stepFourSchemas.schemas ?? {}),
+      ...(stepFiveSchemas.schemas ?? {}),
     },
   };
   spec.paths = {
@@ -62,6 +67,7 @@ function loadSpec(): Record<string, unknown> {
     ...(delivery.paths ?? {}),
     ...(stepFour.paths ?? {}),
     ...(adminOrders.paths ?? {}),
+    ...(stepFive.paths ?? {}),
   };
 
   return spec;

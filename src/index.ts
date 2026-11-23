@@ -3,6 +3,7 @@ import { env } from './config/env';
 import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
 import { redis } from './lib/redis';
+import { startNotificationWorker } from './modules/notifications/notification.worker';
 
 async function main(): Promise<void> {
   const app = createApp();
@@ -14,8 +15,12 @@ async function main(): Promise<void> {
     );
   });
 
+  // Sends queued order notifications (push, SMS, WhatsApp) with retries.
+  const notificationWorker = startNotificationWorker();
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Shutting down');
+    notificationWorker.stop();
     server.close(async () => {
       await prisma.$disconnect().catch(() => undefined);
       redis.disconnect();
