@@ -5,6 +5,82 @@ Every pull request updates this file.
 
 ---
 
+## Step 4 - Orders and payments
+
+**Branch:** `step-4-orders-payments`
+**Version:** v1.3.0
+
+### Added endpoints
+
+| Method | Path | Auth | Purpose |
+| ------ | ---- | ---- | ------- |
+| GET | `/api/v1/orders` | Bearer | Order history (filter `status`, `paymentStatus`, `from`, `to`) |
+| POST | `/api/v1/orders` | Bearer | Checkout, with an optional `Idempotency-Key` header |
+| GET | `/api/v1/orders/{id}` | Bearer | One order with its frozen prices and timeline |
+| POST | `/api/v1/orders/{id}/cancel` | Bearer | Cancel while CONFIRMED, stock restored |
+| POST | `/api/v1/orders/{id}/reorder` | Bearer | One-tap reorder into the cart |
+| POST | `/api/v1/orders/{id}/payments/online` | Bearer | Start a Razorpay payment |
+| POST | `/api/v1/payments/razorpay/verify` | Bearer | Verify the Razorpay checkout response |
+| POST | `/api/v1/payments/razorpay/webhook` | signature | Razorpay webhook (server to server) |
+| GET | `/api/v1/admin/orders` | Bearer + Admin | All orders, filters + search |
+| GET | `/api/v1/admin/orders/{id}` | Bearer + Admin | Order detail with payments |
+| PATCH | `/api/v1/admin/orders/{id}/status` | Bearer + Admin | Next status, logged in the timeline |
+| POST | `/api/v1/admin/orders/{id}/cancel` | Bearer + Admin | Cancel any undelivered order |
+| POST | `/api/v1/admin/orders/{id}/waive-charge` | Bearer + Admin | Waive one charge on this order |
+| POST | `/api/v1/admin/orders/{id}/payments` | Bearer + Admin | Record cash received (COD) |
+| GET / POST | `/api/v1/admin/credit-terms` | Bearer + Admin | Contractors with pay-later terms |
+| GET / PATCH / DELETE | `/api/v1/admin/credit-terms/{id}` | Bearer + Admin | Change or remove terms |
+
+### Error codes introduced
+
+`CART_EMPTY`, `PRODUCT_UNAVAILABLE`, `INSUFFICIENT_STOCK` (409, with the quantity left),
+`DELIVERY_ADDRESS_REQUIRED`, `INVALID_ORDER_STATUS_CHANGE` (409, with `allowedNextStatuses`),
+`ORDER_ALREADY_CANCELLED`, `ORDER_NOT_PAYABLE`, `CHARGE_ALREADY_WAIVED`,
+`PAYMENT_NOT_CONFIGURED` (503), `PAYMENT_PROVIDER_ERROR` (502),
+`PAYMENT_SIGNATURE_INVALID`, `PAYMENT_ALREADY_SETTLED`, `PAYMENT_AMOUNT_INVALID`,
+`PAYMENT_NOT_ALLOWED`, `CREDIT_NOT_AVAILABLE` (403), `CREDIT_LIMIT_EXCEEDED`,
+`CREDIT_TERMS_EXIST`.
+
+### Notes for the frontend
+
+* **Checkout sends the cart as it is stored on the server.** `POST /orders` takes
+  `addressId` (optional - the cart address, then the default address), `deliveryDate`
+  (`YYYY-MM-DD`, today or later), `deliverySlot`, `notes` and `paymentMethod`
+  (`ONLINE`, `CASH_ON_DELIVERY` or `CREDIT`, default `CASH_ON_DELIVERY`). The response is
+  the whole order, and the cart is empty afterwards - no need to refresh it separately.
+* **Send an `Idempotency-Key` header** (8-128 characters, for example a UUID) so a double
+  tap or a retried request returns the same order. A replay answers `200` with
+  `Idempotent-Replayed: true` instead of `201`; show the same success screen either way.
+* **Prices, charges and the address are frozen on the order** at checkout. Display them
+  from the order, never recompute from the product or the current shop settings.
+  `items[].appliedRule` explains the price exactly as it was applied.
+* Statuses move one way only: `CONFIRMED` -> `PACKED` -> `OUT_FOR_DELIVERY` -> `DELIVERED`.
+  A customer can cancel only while `CONFIRMED`; a delivered order cannot be cancelled.
+  `409 INVALID_ORDER_STATUS_CHANGE` carries `details.allowedNextStatuses` for the admin UI.
+* `payment.status` is `PENDING`, `PARTIALLY_PAID` or `PAID`; `payment.amountDuePaise` is
+  what is still owed. `payment.canPayOnline` is true only for an ONLINE order with an
+  amount due.
+* **Online payment flow:** `POST /orders/{id}/payments/online` returns
+  `{ keyId, razorpayOrderId, amountPaise, currency }`. Open the Razorpay checkout with
+  those values, then send `razorpay_order_id`, `razorpay_payment_id` and
+  `razorpay_signature` to `POST /payments/razorpay/verify`. Only that call makes the order
+  paid - never show "paid" from the client alone. The webhook confirms payments even if
+  the app closes before verifying.
+* **Cash on delivery:** no payment call at checkout. The shop records the money with
+  `POST /admin/orders/{id}/payments` (partial amounts allowed).
+* **Pay later:** `CREDIT` at checkout works only for a contractor whose credit terms the
+  admin enabled. `403 CREDIT_NOT_AVAILABLE` or `400 CREDIT_LIMIT_EXCEEDED` (with
+  `details.availablePaise`) should be shown as a polite notice with "choose another
+  payment method".
+* `POST /orders/{id}/reorder` returns `{ cart, added, skipped[] }`: items the shop has hidden
+  since are skipped and listed, the rest are back in the cart at today's prices.
+* The admin order shape adds `customer.id` and `payments[]` (including `signatureVerified`).
+  `timeline[]` is the status history, with who changed it and when.
+* Waiving a charge changes only that order: `money.waivedCharge` records what was waived and
+  `money.grandTotalPaise` already excludes it.
+
+---
+
 ## Step 3 - Pricing, cart and delivery charges
 
 **Branch:** `step-3-pricing-cart`
