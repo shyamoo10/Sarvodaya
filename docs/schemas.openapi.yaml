@@ -1,0 +1,714 @@
+# All component schemas for the Sarvodaya API, merged into openapi.yaml by docs.router.ts.
+schemas:
+  SuccessEnvelope:
+    type: object
+    required:
+    - success
+    - data
+    properties:
+      success:
+        type: boolean
+        enum:
+        - true
+      data:
+        description: Endpoint specific payload.
+      meta:
+        type: object
+        additionalProperties: true
+  ErrorEnvelope:
+    type: object
+    required:
+    - success
+    - error
+    properties:
+      success:
+        type: boolean
+        enum:
+        - false
+      error:
+        type: object
+        required:
+        - code
+        - message
+        properties:
+          code:
+            $ref: '#/components/schemas/ErrorCode'
+          message:
+            type: string
+          details:
+            description: Extra machine-readable context.
+      requestId:
+        type: string
+        description: Same value as the X-Request-Id response header.
+  ErrorCode:
+    type: string
+    description: Stable machine-readable code. Switch on this, never on the message.
+    enum:
+    - VALIDATION_ERROR
+    - UNAUTHORIZED
+    - FORBIDDEN
+    - ROUTE_NOT_FOUND
+    - NOT_FOUND
+    - INTERNAL_ERROR
+    - OTP_RATE_LIMITED
+    - OTP_RESEND_TOO_SOON
+    - OTP_EXPIRED
+    - OTP_INVALID
+    - OTP_MAX_ATTEMPTS
+    - ACCOUNT_TYPE_REQUIRED
+    - ACCOUNT_TYPE_NOT_ALLOWED
+    - ACCOUNT_TYPE_IMMUTABLE
+    - USER_BLOCKED
+    - CANNOT_BLOCK_ADMIN
+    - CANNOT_BLOCK_SELF
+    - SKU_ALREADY_EXISTS
+    - DUPLICATE_CATEGORY
+    - CATEGORY_IN_USE
+    - INVALID_IMPORT_FILE
+  AccountType:
+    type: string
+    enum:
+    - CUSTOMER
+    - CONTRACTOR
+    - ADMIN
+  PaginationMeta:
+    type: object
+    properties:
+      page:
+        type: integer
+      limit:
+        type: integer
+      total:
+        type: integer
+      totalPages:
+        type: integer
+  OtpRequestResult:
+    type: object
+    required:
+    - otpRequestId
+    - phone
+    - expiresAt
+    - expiresInSeconds
+    - resendAfterSeconds
+    - isNewUser
+    properties:
+      otpRequestId:
+        type: string
+        format: uuid
+      phone:
+        type: string
+        example: '9876543210'
+      expiresAt:
+        type: string
+        format: date-time
+      expiresInSeconds:
+        type: integer
+        example: 300
+      resendAfterSeconds:
+        type: integer
+        example: 60
+      isNewUser:
+        type: boolean
+        description: True when verify needs accountType and name.
+      devOtp:
+        type: string
+        description: Development and test only. Never present in production.
+  AuthResult:
+    type: object
+    required:
+    - accessToken
+    - tokenType
+    - expiresInSeconds
+    - user
+    - isNewUser
+    properties:
+      accessToken:
+        type: string
+      tokenType:
+        type: string
+        enum:
+        - Bearer
+      expiresInSeconds:
+        type: integer
+        example: 2592000
+      user:
+        $ref: '#/components/schemas/User'
+      isNewUser:
+        type: boolean
+  User:
+    type: object
+    required:
+    - id
+    - phone
+    - name
+    - accountType
+    - isBlocked
+    - createdAt
+    - updatedAt
+    properties:
+      id:
+        type: string
+        format: uuid
+      phone:
+        type: string
+        example: '9876543210'
+      name:
+        type: string
+        example: Ramesh Kumar
+      accountType:
+        $ref: '#/components/schemas/AccountType'
+      companyName:
+        type: string
+        nullable: true
+      gstNumber:
+        type: string
+        nullable: true
+      isBlocked:
+        type: boolean
+      lastLoginAt:
+        type: string
+        format: date-time
+        nullable: true
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+  AdminUser:
+    allOf:
+    - $ref: '#/components/schemas/User'
+    - type: object
+      properties:
+        blockedAt:
+          type: string
+          format: date-time
+          nullable: true
+        blockedReason:
+          type: string
+          nullable: true
+  Address:
+    type: object
+    required:
+    - id
+    - contactName
+    - contactPhone
+    - line1
+    - city
+    - state
+    - pincode
+    - isDefault
+    - createdAt
+    - updatedAt
+    properties:
+      id:
+        type: string
+        format: uuid
+      label:
+        type: string
+        nullable: true
+        example: Home
+      contactName:
+        type: string
+      contactPhone:
+        type: string
+      line1:
+        type: string
+      line2:
+        type: string
+        nullable: true
+      landmark:
+        type: string
+        nullable: true
+      city:
+        type: string
+      state:
+        type: string
+      pincode:
+        type: string
+        example: '411005'
+      latitude:
+        type: number
+        nullable: true
+        example: 18.5204
+      longitude:
+        type: number
+        nullable: true
+        example: 73.8567
+      isDefault:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+  AddressInput:
+    type: object
+    required:
+    - contactName
+    - contactPhone
+    - line1
+    - city
+    - state
+    - pincode
+    description: On PATCH every field is optional; send only what changed.
+    properties:
+      label:
+        type: string
+        maxLength: 40
+        nullable: true
+      contactName:
+        type: string
+        minLength: 2
+        maxLength: 120
+      contactPhone:
+        type: string
+        example: '9876543210'
+      line1:
+        type: string
+        minLength: 3
+        maxLength: 200
+      line2:
+        type: string
+        maxLength: 200
+        nullable: true
+      landmark:
+        type: string
+        maxLength: 160
+        nullable: true
+      city:
+        type: string
+        minLength: 2
+        maxLength: 80
+      state:
+        type: string
+        minLength: 2
+        maxLength: 80
+      pincode:
+        type: string
+        pattern: ^[0-9]{6}$
+      latitude:
+        type: number
+        minimum: -90
+        maximum: 90
+        nullable: true
+        description: Send together with longitude.
+      longitude:
+        type: number
+        minimum: -180
+        maximum: 180
+        nullable: true
+        description: Send together with latitude.
+      isDefault:
+        type: boolean
+  ProjectSite:
+    type: object
+    required:
+    - id
+    - siteName
+    - line1
+    - city
+    - state
+    - pincode
+    - createdAt
+    - updatedAt
+    properties:
+      id:
+        type: string
+        format: uuid
+      siteName:
+        type: string
+        example: Green Meadows Phase 2
+      contactName:
+        type: string
+        nullable: true
+      contactPhone:
+        type: string
+        nullable: true
+      line1:
+        type: string
+      line2:
+        type: string
+        nullable: true
+      landmark:
+        type: string
+        nullable: true
+      city:
+        type: string
+      state:
+        type: string
+      pincode:
+        type: string
+      latitude:
+        type: number
+        nullable: true
+      longitude:
+        type: number
+        nullable: true
+      notes:
+        type: string
+        nullable: true
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+  ProjectSiteInput:
+    type: object
+    required:
+    - siteName
+    - line1
+    - city
+    - state
+    - pincode
+    description: On PATCH every field is optional; send only what changed.
+    properties:
+      siteName:
+        type: string
+        minLength: 2
+        maxLength: 120
+      contactName:
+        type: string
+        maxLength: 120
+        nullable: true
+      contactPhone:
+        type: string
+        nullable: true
+      line1:
+        type: string
+        minLength: 3
+        maxLength: 200
+      line2:
+        type: string
+        maxLength: 200
+        nullable: true
+      landmark:
+        type: string
+        maxLength: 160
+        nullable: true
+      city:
+        type: string
+        minLength: 2
+        maxLength: 80
+      state:
+        type: string
+        minLength: 2
+        maxLength: 80
+      pincode:
+        type: string
+        pattern: ^[0-9]{6}$
+      latitude:
+        type: number
+        minimum: -90
+        maximum: 90
+        nullable: true
+      longitude:
+        type: number
+        minimum: -180
+        maximum: 180
+        nullable: true
+      notes:
+        type: string
+        maxLength: 500
+        nullable: true
+  ProductUnit:
+    type: string
+    description: Lowercase in the API and in Excel imports; stored uppercase internally.
+    enum:
+    - kg
+    - bag
+    - piece
+    - litre
+    - box
+  CategoryNode:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      name:
+        type: string
+        example: TMT Bars
+      slug:
+        type: string
+        example: tmt-bars
+      description:
+        type: string
+        nullable: true
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+      sortOrder:
+        type: integer
+        example: 1
+      isActive:
+        type: boolean
+      productCount:
+        type: integer
+        description: Visible products in this category only.
+        example: 5
+      children:
+        type: array
+        items:
+          $ref: '#/components/schemas/CategoryNode'
+  Product:
+    type: object
+    description: Public product shape. The exact stock count is not exposed - use inStock.
+    properties:
+      id:
+        type: string
+        format: uuid
+      sku:
+        type: string
+        example: STL-TMT-008
+      name:
+        type: string
+        example: TATA Tiscon 550D TMT Bar
+      description:
+        type: string
+        nullable: true
+      brand:
+        type: string
+        example: TATA Tiscon
+      sizeVariant:
+        type: string
+        nullable: true
+        example: 8 mm
+      unit:
+        $ref: '#/components/schemas/ProductUnit'
+      pricePaise:
+        type: integer
+        description: Price per unit in integer paise; 6850 is 68.50 rupees.
+        example: 6850
+      inStock:
+        type: boolean
+      photos:
+        type: array
+        items:
+          type: string
+          format: uri
+      category:
+        type: object
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+            example: TMT Bars
+          slug:
+            type: string
+            example: tmt-bars
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+  AdminProduct:
+    allOf:
+    - $ref: '#/components/schemas/Product'
+    - type: object
+      properties:
+        stockQuantity:
+          type: integer
+          example: 2400
+        isActive:
+          type: boolean
+        categoryId:
+          type: string
+          format: uuid
+  CategoryCreateRequest:
+    type: object
+    required:
+    - name
+    properties:
+      name:
+        type: string
+        maxLength: 80
+        example: Plumbing
+      slug:
+        type: string
+        description: Generated from the name when omitted.
+      description:
+        type: string
+        maxLength: 300
+        nullable: true
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+        description: Set for a sub-category; omit for a top-level category.
+      sortOrder:
+        type: integer
+        minimum: 0
+        maximum: 9999
+        default: 0
+      isActive:
+        type: boolean
+        default: true
+  CategoryUpdateRequest:
+    type: object
+    description: All fields optional; send only what changes.
+    properties:
+      name:
+        type: string
+        maxLength: 80
+      slug:
+        type: string
+      description:
+        type: string
+        maxLength: 300
+        nullable: true
+      parentId:
+        type: string
+        format: uuid
+        nullable: true
+      sortOrder:
+        type: integer
+        minimum: 0
+        maximum: 9999
+      isActive:
+        type: boolean
+  ProductCreateRequest:
+    type: object
+    required:
+    - sku
+    - name
+    - brand
+    - unit
+    - pricePaise
+    - categoryId
+    properties:
+      sku:
+        type: string
+        maxLength: 40
+        example: STL-TMT-008
+      name:
+        type: string
+        maxLength: 160
+      description:
+        type: string
+        maxLength: 1000
+        nullable: true
+      brand:
+        type: string
+        maxLength: 80
+      sizeVariant:
+        type: string
+        maxLength: 80
+        nullable: true
+      unit:
+        $ref: '#/components/schemas/ProductUnit'
+      pricePaise:
+        type: integer
+        minimum: 1
+        description: 'Integer paise, never a float.'
+        example: 6850
+      stockQuantity:
+        type: integer
+        minimum: 0
+        default: 0
+      photos:
+        type: array
+        maxItems: 10
+        items:
+          type: string
+          format: uri
+      categoryId:
+        type: string
+        format: uuid
+      isActive:
+        type: boolean
+        default: true
+  ProductUpdateRequest:
+    type: object
+    description: All fields optional except sku, which cannot be changed.
+    properties:
+      name:
+        type: string
+        maxLength: 160
+      description:
+        type: string
+        maxLength: 1000
+        nullable: true
+      brand:
+        type: string
+        maxLength: 80
+      sizeVariant:
+        type: string
+        maxLength: 80
+        nullable: true
+      unit:
+        $ref: '#/components/schemas/ProductUnit'
+      pricePaise:
+        type: integer
+        minimum: 1
+      stockQuantity:
+        type: integer
+        minimum: 0
+      photos:
+        type: array
+        maxItems: 10
+        items:
+          type: string
+          format: uri
+      categoryId:
+        type: string
+        format: uuid
+      isActive:
+        type: boolean
+  StockUpdateRequest:
+    type: object
+    description: Send exactly one of stockQuantity or adjustment.
+    properties:
+      stockQuantity:
+        type: integer
+        minimum: 0
+        description: Absolute new stock.
+        example: 2400
+      adjustment:
+        type: integer
+        description: Relative change; negatives reduce stock.
+        example: -2
+    oneOf:
+    - required:
+      - stockQuantity
+    - required:
+      - adjustment
+  ImportRowError:
+    type: object
+    properties:
+      row:
+        type: integer
+        description: 'Spreadsheet row number, header is row 1.'
+        example: 7
+      sku:
+        type: string
+        nullable: true
+      field:
+        type: string
+        example: unit
+      message:
+        type: string
+        example: 'unit must be one of: kg, bag, piece, litre, box'
+  ImportReport:
+    type: object
+    properties:
+      totalRows:
+        type: integer
+        description: Data rows found in the sheet.
+      created:
+        type: integer
+      updated:
+        type: integer
+        description: Existing SKUs that were updated.
+      failed:
+        type: integer
+      errors:
+        type: array
+        items:
+          $ref: '#/components/schemas/ImportRowError'

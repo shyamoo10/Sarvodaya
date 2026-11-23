@@ -1,0 +1,241 @@
+# Step 3 admin delivery paths, merged into openapi.yaml by docs.router.ts.
+paths:
+  /admin/delivery/slabs:
+    get:
+      tags:
+      - Admin
+      summary: List distance slabs
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Slabs, nearest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/DistanceSlab'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Add a distance slab
+      description: 'Slabs are measured from the shop location: `fromKm` inclusive, `toKm` exclusive,
+        null = and beyond. Active slabs may not overlap.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSlabRequest'
+      responses:
+        '201':
+          description: Created slab
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/DistanceSlab'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DELIVERY_SLAB_OVERLAP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/delivery/slabs/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Admin
+      summary: Change a distance slab
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSlabRequest'
+      responses:
+        '200':
+          description: Updated slab
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/DistanceSlab'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: DELIVERY_SLAB_OVERLAP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags:
+      - Admin
+      summary: Delete a distance slab
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/delivery/pincodes:
+    get:
+      tags:
+      - Admin
+      summary: List serviceable pincodes
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: search
+        in: query
+        description: Matches pincode, area or city.
+        schema:
+          type: string
+      - name: isActive
+        in: query
+        schema:
+          type: string
+          enum:
+          - 'true'
+          - 'false'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Pincode page
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/ServiceablePincode'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Approve a pincode for delivery
+      description: Coordinates are the area centre and are used when a customer's address carries
+        no coordinates of its own.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePincodeRequest'
+      responses:
+        '201':
+          description: Created pincode
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ServiceablePincode'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: DUPLICATE_PINCODE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/delivery/pincodes/{pincode}:
+    parameters:
+    - name: pincode
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^[1-9][0-9]{5}$
+    patch:
+      tags:
+      - Admin
+      summary: Change or deactivate a pincode
+      description: 'Set `isActive: false` to stop delivering to it without forgetting its details.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePincodeRequest'
+      responses:
+        '200':
+          description: Updated pincode
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ServiceablePincode'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Admin
+      summary: Remove a pincode
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Removed
+        '404':
+          $ref: '#/components/responses/NotFound'
