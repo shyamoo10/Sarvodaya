@@ -15,6 +15,11 @@ process.env.CORS_ORIGINS ??= 'http://localhost:5173';
 process.env.DEV_FIXED_OTP ??= '123456';
 process.env.DEV_FIXED_OTP_ENABLED ??= 'true';
 process.env.LOG_LEVEL ??= 'silent';
+// Throwaway Razorpay values: they only exist so the signature checks can be
+// exercised without real money. No network call is made by the test suite.
+process.env.RAZORPAY_KEY_ID ??= 'rzp_test_sarvodaya';
+process.env.RAZORPAY_KEY_SECRET ??= 'test-razorpay-key-secret';
+process.env.RAZORPAY_WEBHOOK_SECRET ??= 'test-razorpay-webhook-secret';
 
 if (!existsSync(path.resolve(process.cwd(), 'docs/openapi.yaml'))) {
   throw new Error('docs/openapi.yaml is missing: the API serves it at /docs.');
@@ -24,7 +29,7 @@ beforeEach(async () => {
   const { prisma } = await import('../src/lib/prisma');
   const { redis } = await import('../src/lib/redis');
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "CartItem", "Cart", "ContractorPrice", "BulkDiscount", "ContractorRule", "DistanceSlab", "ServiceablePincode", "ShopSettings", "Address", "ProjectSite", "Product", "Category", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "Payment", "OrderStatusHistory", "OrderItem", "Order", "CreditTerms", "Counter", "CartItem", "Cart", "ContractorPrice", "BulkDiscount", "ContractorRule", "DistanceSlab", "ServiceablePincode", "ShopSettings", "Address", "ProjectSite", "Product", "Category", "User" RESTART IDENTITY CASCADE',
   );
   await redis.flushdb();
 });
