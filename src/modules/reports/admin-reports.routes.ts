@@ -1,51 +1,38 @@
 import { Router } from 'express';
+import type { Response } from 'express';
 import { asyncHandler } from '../../lib/http';
 import { requireAdmin, requireAuth } from '../../middleware/auth';
 import { validate } from '../../middleware/validate';
-import {
-  orderReportQuerySchema,
-  reportRangeSchema,
-  type OrderReportQuery,
-  type ReportRangeQuery,
-} from './report.schemas';
-import { buildOrderReport, buildSalesReport } from './report.service';
+import { reportQuerySchema, type ReportQuery } from './report.schemas';
+import { buildOrdersReport, buildSalesReport } from './report.service';
 
 export const adminReportsRouter = Router();
 
 adminReportsRouter.use(requireAuth, requireAdmin);
 
-function sendWorkbook(
-  res: Parameters<Parameters<typeof asyncHandler>[0]>[1],
-  buffer: Buffer,
-  fileName: string,
-): void {
-  res.setHeader(
-    'Content-Type',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  );
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-  res.setHeader('Content-Length', String(buffer.length));
-  res.status(200).send(buffer);
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+function sendWorkbook(res: Response, workbook: { buffer: Buffer; fileName: string }): Response {
+  res.setHeader('Content-Type', XLSX);
+  res.setHeader('Content-Disposition', `attachment; filename="${workbook.fileName}"`);
+  res.setHeader('Content-Length', String(workbook.buffer.length));
+  return res.status(200).send(workbook.buffer);
 }
 
-/** GET /admin/reports/sales.xlsx — one row per order line. */
+/** Sales for a period, one row per order plus a summary sheet. */
 adminReportsRouter.get(
   '/sales.xlsx',
-  validate(reportRangeSchema, 'query'),
+  validate(reportQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const query = req.query as unknown as ReportRangeQuery;
-    const report = await buildSalesReport(query);
-    sendWorkbook(res, report.buffer, report.fileName);
+    sendWorkbook(res, await buildSalesReport(req.query as unknown as ReportQuery));
   }),
 );
 
-/** GET /admin/reports/orders.xlsx — one row per order. */
+/** Every item sold in a period, one row per line. */
 adminReportsRouter.get(
   '/orders.xlsx',
-  validate(orderReportQuerySchema, 'query'),
+  validate(reportQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const query = req.query as unknown as OrderReportQuery;
-    const report = await buildOrderReport(query);
-    sendWorkbook(res, report.buffer, report.fileName);
+    sendWorkbook(res, await buildOrdersReport(req.query as unknown as ReportQuery));
   }),
 );
