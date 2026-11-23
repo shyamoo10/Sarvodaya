@@ -1,10 +1,11 @@
 # Root of the OpenAPI contract: info, servers, tags and shared components.
-# Paths live in api.paths.yaml and catalogue.paths.yaml, schemas in schemas.openapi.yaml;
-# docs.router.ts merges all four files into the document served at /docs.
+# Paths live in api.paths.yaml, catalogue.paths.yaml, step3.paths.yaml, pricing.paths.yaml and
+# delivery.paths.yaml; schemas in schemas.openapi.yaml and step3.schemas.yaml. docs.router.ts
+# merges them into the document served at /docs.
 openapi: 3.0.3
 info:
   title: Sarvodaya API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, fasteners, plumbing).
 
@@ -14,6 +15,11 @@ info:
     **Step 2**: the product catalogue - categories and sub-categories, products with brand,
     size/variant, unit, photos and stock, a public searchable list, admin management and a bulk
     Excel import.
+
+    **Step 3**: automatic pricing (contractor special price, bulk quantity discount, contractor
+    percentage rule, then the normal price), a server-side cart whose charges are returned as
+    separate lines (item total, minimum-order charge, distance charge, grand total) and delivery
+    limited to approved pincodes. Every amount, slab and pincode is admin-managed data.
 
     ## Conventions
     * All amounts are integer **paise**, never floats.
@@ -43,6 +49,8 @@ tags:
     description: Contractor project sites
   - name: Catalogue
     description: Categories and products (public browsing)
+  - name: Cart
+    description: Server-side cart, priced with the shop's rules and delivery charges
   - name: Admin
     description: Shop-owner only endpoints
 components:
