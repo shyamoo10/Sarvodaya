@@ -3,28 +3,29 @@ info:
   title: Sarvodaya API
   version: 1.1.0
   description: |
-    Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, nuts, bolts, screws).
+    Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, fasteners, plumbing).
 
-    **Step 1 covers accounts and login**: phone + OTP login (no passwords), Customer/Contractor
-    sign-up, admin accounts created only by the seed script, profile, saved delivery addresses,
-    project sites, and the admin block flag.
+    **Step 1**: accounts and login. Phone + OTP only (no passwords), Customer/Contractor sign-up,
+    admin accounts created only by the seed script, profile, saved addresses, project sites and
+    the admin block flag.
 
-    **Step 2 adds the product catalogue**: categories and sub-categories, products with brand,
-    size/variant, unit, photos and stock, a public searchable product list, and admin management
-    including a bulk Excel import.
+    **Step 2**: the product catalogue. Categories and sub-categories, products with brand,
+    size/variant, unit, photos and stock, a public searchable product list, admin management and
+    a bulk Excel import.
 
     ## Conventions
     * All amounts are integer **paise**, never floats.
-    * Every success returns `{ "success": true, "data": ... }`.
-    * Every error returns `{ "success": false, "error": { "code", "message", "details"? }, "requestId" }`.
+    * Success: `{ "success": true, "data": ..., "meta"?: {...} }`.
+    * Error: `{ "success": false, "error": { "code", "message", "details"? }, "requestId" }`.
     * Switch on `error.code`; it is stable. `error.message` is for humans and may change.
-    * Phone numbers are 10 digit Indian mobile numbers. `accountType` is `CUSTOMER`, `CONTRACTOR` or `ADMIN`.
+    * Phones are 10 digit Indian mobile numbers. `accountType` is `CUSTOMER`, `CONTRACTOR` or `ADMIN`.
     * `companyName` and `gstNumber` are always optional.
+    * `meta` only appears on paginated responses: `{ page, limit, total, totalPages }`.
 
     ## Development OTP
     When `NODE_ENV` is not `production` the API accepts the fixed OTP `123456`
-    (configurable with `DEV_FIXED_OTP`) and echoes it back as `devOtp` in the
-    request-OTP response. The fixed OTP is hard-disabled in production.
+    (configurable with `DEV_FIXED_OTP`) and echoes it back as `devOtp` in the request-OTP response.
+    The fixed OTP is hard-disabled in production.
   contact:
     name: Sarvodaya API team
 servers:
@@ -51,9 +52,8 @@ paths:
       tags: [Auth]
       summary: Request an OTP
       description: |
-        Sends a 6 digit OTP valid for 5 minutes to the given mobile number.
-        Rate limited per phone and per IP, with a resend cooldown
-        (`resendAfterSeconds` in the response). Blocked accounts cannot request an OTP.
+        Sends a 6 digit OTP valid for 5 minutes. Rate limited per phone and per IP, with a resend
+        cooldown (`resendAfterSeconds`). Blocked accounts cannot request an OTP.
       requestBody:
         required: true
         content:
@@ -65,10 +65,10 @@ paths:
                 phone:
                   type: string
                   example: '9876543210'
-                  description: 10 digit Indian mobile number. `+91` and spaces are accepted and normalised.
+                  description: 10 digit Indian mobile number. `+91` and spaces are normalised.
                 accountType:
                   $ref: '#/components/schemas/AccountType'
-                  description: Optional hint used at sign-up. The type is confirmed during verify.
+                  description: Optional hint at sign-up; confirmed during verify.
       responses:
         '200':
           description: OTP created
@@ -84,55 +84,29 @@ paths:
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
-          description: Account is blocked
+          description: Account is blocked (`USER_BLOCKED`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                blocked:
-                  value:
-                    success: false
-                    error:
-                      code: USER_BLOCKED
-                      message: This account has been blocked. Please contact the shop.
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
         '429':
-          description: Rate limited or requested too soon
+          description: Rate limited (`OTP_RATE_LIMITED`) or requested too soon (`OTP_RESEND_TOO_SOON`).
+            Both carry `details.retryAfterSeconds`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                cooldown:
-                  value:
-                    success: false
-                    error:
-                      code: OTP_RESEND_TOO_SOON
-                      message: Please wait 42 seconds before requesting another OTP.
-                      details:
-                        retryAfterSeconds: 42
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
-                rateLimited:
-                  value:
-                    success: false
-                    error:
-                      code: OTP_RATE_LIMITED
-                      message: Too many OTP requests. Please try again later.
-                      details:
-                        retryAfterSeconds: 3600
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
 
   /auth/otp/verify:
     post:
       tags: [Auth]
       summary: Verify an OTP and log in
       description: |
-        On success returns an access token (JWT, `Authorization: Bearer <token>`).
+        Returns an access token (JWT, `Authorization: Bearer <token>`).
 
-        * Existing phone number: logs in, `name`/`accountType` are ignored.
-        * New phone number: `accountType` (CUSTOMER or CONTRACTOR) and `name` are required.
-        * `ADMIN` can never be selected here; admin accounts are created by the seed script.
+        * Existing phone: logs in; `name`/`accountType` are ignored.
+        * New phone: `accountType` (CUSTOMER or CONTRACTOR) and `name` are required.
+        * `ADMIN` can never be chosen here; admins come only from the seed script.
       requestBody:
         required: true
         content:
@@ -159,11 +133,9 @@ paths:
                 companyName:
                   type: string
                   maxLength: 160
-                  description: Optional at sign-up.
                 gstNumber:
                   type: string
                   maxLength: 15
-                  description: Optional at sign-up.
       responses:
         '200':
           description: Logged in
@@ -177,51 +149,21 @@ paths:
                       data:
                         $ref: '#/components/schemas/AuthResult'
         '400':
-          description: Invalid/expired OTP, missing account type, or validation failure
+          description: |
+            Invalid or expired OTP (`OTP_INVALID`, `OTP_EXPIRED`), missing account type
+            (`ACCOUNT_TYPE_REQUIRED`, `ACCOUNT_TYPE_NOT_ALLOWED`) or validation failure.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                invalidOtp:
-                  value:
-                    success: false
-                    error:
-                      code: OTP_INVALID
-                      message: Incorrect OTP
-                      details:
-                        remainingAttempts: 4
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
-                expired:
-                  value:
-                    success: false
-                    error:
-                      code: OTP_EXPIRED
-                      message: This OTP has expired. Request a new one.
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
-                accountTypeRequired:
-                  value:
-                    success: false
-                    error:
-                      code: ACCOUNT_TYPE_REQUIRED
-                      message: accountType (CUSTOMER or CONTRACTOR) is required to create an account
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
         '403':
           $ref: '#/components/responses/Forbidden'
         '429':
-          description: Too many incorrect attempts
+          description: Too many incorrect attempts (`OTP_MAX_ATTEMPTS`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                maxAttempts:
-                  value:
-                    success: false
-                    error:
-                      code: OTP_MAX_ATTEMPTS
-                      message: Too many incorrect attempts. Request a new OTP.
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
 
   /auth/me:
     get:
@@ -268,8 +210,8 @@ paths:
       tags: [Profile]
       summary: Update my profile
       description: |
-        Name and phone are always present. `companyName` and `gstNumber` are optional:
-        send `null` or `""` to clear them. Account type cannot be changed.
+        Send only what changes. `companyName` and `gstNumber` may be sent as `null` or `""` to
+        clear them. `accountType` cannot be changed (`ACCOUNT_TYPE_IMMUTABLE`, 409).
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -293,7 +235,7 @@ paths:
                   example: 27ABCDE1234F1Z5
                 accountType:
                   $ref: '#/components/schemas/AccountType'
-                  description: Read-only. Sending a different value returns ACCOUNT_TYPE_IMMUTABLE.
+                  description: Read-only.
       responses:
         '200':
           description: Updated profile
@@ -311,19 +253,11 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
-          description: Account type cannot be changed
+          description: Account type cannot be changed (`ACCOUNT_TYPE_IMMUTABLE`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                immutable:
-                  value:
-                    success: false
-                    error:
-                      code: ACCOUNT_TYPE_IMMUTABLE
-                      message: Account type cannot be changed after sign-up
-                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
 
   /me/addresses:
     get:
@@ -429,7 +363,7 @@ paths:
     delete:
       tags: [Addresses]
       summary: Delete one of my addresses
-      description: If the deleted address was the default, the most recent remaining address becomes the default.
+      description: If the default address is deleted, the most recent remaining address becomes the default.
       security: [{ bearerAuth: [] }]
       responses:
         '204':
@@ -551,6 +485,88 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /categories:
+    get:
+      tags: [Catalogue]
+      summary: Category tree
+      description: |
+        Top-level categories with their sub-categories, ordered by `sortOrder` then name. Only
+        active categories are returned. `productCount` counts the **visible products in that
+        category only**, not its sub-categories.
+      responses:
+        '200':
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CategoryNode'
+
+  /products:
+    get:
+      tags: [Catalogue]
+      summary: Browse products
+      description: |
+        The public catalogue. Hidden products never appear and the exact stock count is not
+        disclosed - only `inStock`. Filters combine with AND. An unknown `category` slug returns
+        an empty page, not an error.
+      parameters:
+        - $ref: '#/components/parameters/ProductSearch'
+        - $ref: '#/components/parameters/ProductCategory'
+        - $ref: '#/components/parameters/ProductBrand'
+        - $ref: '#/components/parameters/MinPricePaise'
+        - $ref: '#/components/parameters/MaxPricePaise'
+        - $ref: '#/components/parameters/InStock'
+        - $ref: '#/components/parameters/ProductSort'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Product page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Product'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /products/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Catalogue]
+      summary: Product detail
+      description: A hidden product answers 404, exactly like an unknown id.
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /admin/users:
     get:
       tags: [Admin]
@@ -570,19 +586,8 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: page
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Users page
@@ -637,8 +642,8 @@ paths:
       tags: [Admin]
       summary: Block a user
       description: |
-        Blocking disables login immediately: OTP requests are refused and existing
-        tokens stop working. Admin accounts and your own account cannot be blocked.
+        Blocking disables login immediately: OTP requests are refused and issued tokens stop
+        working. Admin accounts and your own account cannot be blocked.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: false
@@ -663,13 +668,13 @@ paths:
                       data:
                         $ref: '#/components/schemas/AdminUser'
         '400':
-          description: You cannot block your own account
+          description: You cannot block your own account (`CANNOT_BLOCK_SELF`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '403':
-          description: Admin accounts cannot be blocked
+          description: Admin accounts cannot be blocked (`CANNOT_BLOCK_ADMIN`)
           content:
             application/json:
               schema:
