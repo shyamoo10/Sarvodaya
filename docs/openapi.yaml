@@ -1,3 +1,6 @@
+# Root of the OpenAPI contract: info, servers, tags and shared components.
+# Paths live in api.paths.yaml and catalogue.paths.yaml, schemas in schemas.openapi.yaml;
+# docs.router.ts merges all four files into the document served at /docs.
 openapi: 3.0.3
 info:
   title: Sarvodaya API
@@ -5,33 +8,30 @@ info:
   description: |
     Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, fasteners, plumbing).
 
-    **Step 1**: accounts and login. Phone + OTP only (no passwords), Customer/Contractor sign-up,
-    admin accounts created only by the seed script, profile, saved addresses, project sites and
-    the admin block flag.
+    **Step 1**: accounts and login - phone + OTP (no passwords), Customer/Contractor sign-up,
+    admin accounts from the seed script only, profile, saved addresses, project sites, admin block.
 
-    **Step 2**: the product catalogue. Categories and sub-categories, products with brand,
-    size/variant, unit, photos and stock, a public searchable product list, admin management and
-    a bulk Excel import.
+    **Step 2**: the product catalogue - categories and sub-categories, products with brand,
+    size/variant, unit, photos and stock, a public searchable list, admin management and a bulk
+    Excel import.
 
     ## Conventions
     * All amounts are integer **paise**, never floats.
-    * Success: `{ "success": true, "data": ..., "meta"?: {...} }`.
+    * Success: `{ "success": true, "data": ..., "meta"?: { page, limit, total, totalPages } }`
+      (`meta` only on paginated responses).
     * Error: `{ "success": false, "error": { "code", "message", "details"? }, "requestId" }`.
-    * Switch on `error.code`; it is stable. `error.message` is for humans and may change.
-    * Phones are 10 digit Indian mobile numbers. `accountType` is `CUSTOMER`, `CONTRACTOR` or `ADMIN`.
+      Switch on `error.code`; it is stable. `error.message` is for humans and may change.
+    * Phones are 10 digit Indian mobile numbers; `accountType` is CUSTOMER, CONTRACTOR or ADMIN.
     * `companyName` and `gstNumber` are always optional.
-    * `meta` only appears on paginated responses: `{ page, limit, total, totalPages }`.
 
     ## Development OTP
-    When `NODE_ENV` is not `production` the API accepts the fixed OTP `123456`
-    (configurable with `DEV_FIXED_OTP`) and echoes it back as `devOtp` in the request-OTP response.
-    The fixed OTP is hard-disabled in production.
+    Outside production the API accepts the fixed OTP `123456` (`DEV_FIXED_OTP`) and echoes it as
+    `devOtp` in the request-OTP response. It is hard-disabled in production.
   contact:
     name: Sarvodaya API team
 servers:
   - url: http://localhost:3000/api/v1
     description: Local development
-
 tags:
   - name: Auth
     description: OTP login
@@ -45,661 +45,114 @@ tags:
     description: Categories and products (public browsing)
   - name: Admin
     description: Shop-owner only endpoints
-
-paths:
-  /auth/otp/request:
-    post:
-      tags: [Auth]
-      summary: Request an OTP
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    ProductSearch:
+      name: search
+      in: query
+      description: Matches product name, brand or SKU (case insensitive).
+      schema:
+        type: string
+        maxLength: 100
+    ProductCategory:
+      name: category
+      in: query
       description: |
-        Sends a 6 digit OTP valid for 5 minutes. Rate limited per phone and per IP, with a resend
-        cooldown (`resendAfterSeconds`). Blocked accounts cannot request an OTP.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [phone]
-              properties:
-                phone:
-                  type: string
-                  example: '9876543210'
-                  description: 10 digit Indian mobile number. `+91` and spaces are normalised.
-                accountType:
-                  $ref: '#/components/schemas/AccountType'
-                  description: Optional hint at sign-up; confirmed during verify.
-      responses:
-        '200':
-          description: OTP created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/OtpRequestResult'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '403':
-          description: Account is blocked (`USER_BLOCKED`)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '429':
-          description: Rate limited (`OTP_RATE_LIMITED`) or requested too soon (`OTP_RESEND_TOO_SOON`).
-            Both carry `details.retryAfterSeconds`.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-
-  /auth/otp/verify:
-    post:
-      tags: [Auth]
-      summary: Verify an OTP and log in
-      description: |
-        Returns an access token (JWT, `Authorization: Bearer <token>`).
-
-        * Existing phone: logs in; `name`/`accountType` are ignored.
-        * New phone: `accountType` (CUSTOMER or CONTRACTOR) and `name` are required.
-        * `ADMIN` can never be chosen here; admins come only from the seed script.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [phone, otp]
-              properties:
-                phone:
-                  type: string
-                  example: '9876543210'
-                otp:
-                  type: string
-                  pattern: '^[0-9]{6}$'
-                  example: '123456'
-                accountType:
-                  $ref: '#/components/schemas/AccountType'
-                  description: Required for a new phone number. ADMIN is rejected.
-                name:
-                  type: string
-                  minLength: 2
-                  maxLength: 120
-                  description: Required for a new phone number.
-                companyName:
-                  type: string
-                  maxLength: 160
-                gstNumber:
-                  type: string
-                  maxLength: 15
-      responses:
-        '200':
-          description: Logged in
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AuthResult'
-        '400':
-          description: |
-            Invalid or expired OTP (`OTP_INVALID`, `OTP_EXPIRED`), missing account type
-            (`ACCOUNT_TYPE_REQUIRED`, `ACCOUNT_TYPE_NOT_ALLOWED`) or validation failure.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '429':
-          description: Too many incorrect attempts (`OTP_MAX_ATTEMPTS`)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-
-  /auth/me:
-    get:
-      tags: [Auth]
-      summary: Current user from the token
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: The authenticated user
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-
-  /me:
-    get:
-      tags: [Profile]
-      summary: Get my profile
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: My profile
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    patch:
-      tags: [Profile]
-      summary: Update my profile
-      description: |
-        Send only what changes. `companyName` and `gstNumber` may be sent as `null` or `""` to
-        clear them. `accountType` cannot be changed (`ACCOUNT_TYPE_IMMUTABLE`, 409).
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                  minLength: 2
-                  maxLength: 120
-                companyName:
-                  type: string
-                  maxLength: 160
-                  nullable: true
-                gstNumber:
-                  type: string
-                  maxLength: 15
-                  nullable: true
-                  example: 27ABCDE1234F1Z5
-                accountType:
-                  $ref: '#/components/schemas/AccountType'
-                  description: Read-only.
-      responses:
-        '200':
-          description: Updated profile
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '409':
-          description: Account type cannot be changed (`ACCOUNT_TYPE_IMMUTABLE`)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-
-  /me/addresses:
-    get:
-      tags: [Addresses]
-      summary: List my saved addresses
-      description: Default address first, then newest first.
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: My addresses
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Address'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    post:
-      tags: [Addresses]
-      summary: Save a delivery address
-      description: The first address of a user automatically becomes the default one.
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddressInput'
-      responses:
-        '201':
-          description: Address created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Address'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /me/addresses/{id}:
-    parameters:
-      - $ref: '#/components/parameters/IdPath'
-    get:
-      tags: [Addresses]
-      summary: Get one of my addresses
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: Address
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Address'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    patch:
-      tags: [Addresses]
-      summary: Update one of my addresses
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddressInput'
-      responses:
-        '200':
-          description: Updated address
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Address'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      tags: [Addresses]
-      summary: Delete one of my addresses
-      description: If the default address is deleted, the most recent remaining address becomes the default.
-      security: [{ bearerAuth: [] }]
-      responses:
-        '204':
-          description: Deleted
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /me/project-sites:
-    get:
-      tags: [Project sites]
-      summary: List my project sites
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: My project sites
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/ProjectSite'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-    post:
-      tags: [Project sites]
-      summary: Create a project site
-      description: Mainly for contractors, but any account may create sites.
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProjectSiteInput'
-      responses:
-        '201':
-          description: Project site created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ProjectSite'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /me/project-sites/{id}:
-    parameters:
-      - $ref: '#/components/parameters/IdPath'
-    get:
-      tags: [Project sites]
-      summary: Get one of my project sites
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: Project site
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ProjectSite'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    patch:
-      tags: [Project sites]
-      summary: Update one of my project sites
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProjectSiteInput'
-      responses:
-        '200':
-          description: Updated project site
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ProjectSite'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      tags: [Project sites]
-      summary: Delete one of my project sites
-      security: [{ bearerAuth: [] }]
-      responses:
-        '204':
-          description: Deleted
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /categories:
-    get:
-      tags: [Catalogue]
-      summary: Category tree
-      description: |
-        Top-level categories with their sub-categories, ordered by `sortOrder` then name. Only
-        active categories are returned. `productCount` counts the **visible products in that
-        category only**, not its sub-categories.
-      responses:
-        '200':
-          description: Category tree
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/CategoryNode'
-
-  /products:
-    get:
-      tags: [Catalogue]
-      summary: Browse products
-      description: |
-        The public catalogue. Hidden products never appear and the exact stock count is not
-        disclosed - only `inStock`. Filters combine with AND. An unknown `category` slug returns
-        an empty page, not an error.
-      parameters:
-        - $ref: '#/components/parameters/ProductSearch'
-        - $ref: '#/components/parameters/ProductCategory'
-        - $ref: '#/components/parameters/ProductBrand'
-        - $ref: '#/components/parameters/MinPricePaise'
-        - $ref: '#/components/parameters/MaxPricePaise'
-        - $ref: '#/components/parameters/InStock'
-        - $ref: '#/components/parameters/ProductSort'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: Product page
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Product'
-                      meta:
-                        $ref: '#/components/schemas/PaginationMeta'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-
-  /products/{id}:
-    parameters:
-      - $ref: '#/components/parameters/IdPath'
-    get:
-      tags: [Catalogue]
-      summary: Product detail
-      description: A hidden product answers 404, exactly like an unknown id.
-      responses:
-        '200':
-          description: Product
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Product'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /admin/users:
-    get:
-      tags: [Admin]
-      summary: List users
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - name: search
-          in: query
+        Category slug. A top-level slug also includes its sub-categories; an unknown slug returns
+        an empty page.
+      schema:
+        type: string
+        maxLength: 90
+    ProductBrand:
+      name: brand
+      in: query
+      description: Exact brand match, case insensitive.
+      schema:
+        type: string
+        maxLength: 80
+    MinPricePaise:
+      name: minPricePaise
+      in: query
+      description: Inclusive lower price bound, in paise.
+      schema:
+        type: integer
+        minimum: 0
+    MaxPricePaise:
+      name: maxPricePaise
+      in: query
+      description: Inclusive upper price bound, in paise.
+      schema:
+        type: integer
+        minimum: 0
+    InStock:
+      name: inStock
+      in: query
+      description: '`true` returns products with stock, `false` only out-of-stock products.'
+      schema:
+        type: boolean
+    IsActive:
+      name: isActive
+      in: query
+      description: Admin only. `false` lists hidden products.
+      schema:
+        type: boolean
+    ProductSort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [newest, price_asc, price_desc, name_asc]
+        default: newest
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR
+      content:
+        application/json:
           schema:
-            type: string
-          description: Matches phone, name or company name.
-        - name: accountType
-          in: query
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: UNAUTHORIZED - missing, invalid or expired token
+      content:
+        application/json:
           schema:
-            $ref: '#/components/schemas/AccountType'
-        - name: isBlocked
-          in: query
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: FORBIDDEN - blocked account or missing permission
+      content:
+        application/json:
           schema:
-            type: boolean
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: Users page
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/AdminUser'
-                      meta:
-                        $ref: '#/components/schemas/PaginationMeta'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: Not an admin
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-
-  /admin/users/{id}:
-    parameters:
-      - $ref: '#/components/parameters/IdPath'
-    get:
-      tags: [Admin]
-      summary: Get a user
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: User
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AdminUser'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /admin/users/{id}/block:
-    parameters:
-      - $ref: '#/components/parameters/IdPath'
-    post:
-      tags: [Admin]
-      summary: Block a user
-      description: |
-        Blocking disables login immediately: OTP requests are refused and issued tokens stop
-        working. Admin accounts and your own account cannot be blocked.
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                reason:
-                  type: string
-                  maxLength: 200
-      responses:
-        '200':
-          description: Blocked user
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AdminUser'
-        '400':
-          description: You cannot block your own account (`CANNOT_BLOCK_SELF`)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '403':
-          description: Admin accounts cannot be blocked (`CANNOT_BLOCK_ADMIN`)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /admin/users/{id}/unblock:
-    parameters:
-      - $ref: '#/components/parameters/IdPath'
-    post:
-      tags: [Admin]
-      summary: Unblock a user
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200':
-          description: Unblocked user
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessEnvelope'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/AdminUser'
-        '404':
-          $ref: '#/components/responses/NotFound'
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: NOT_FOUND - record not found or hidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+paths: {}
