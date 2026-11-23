@@ -56,6 +56,11 @@ export const ErrorCode = {
   CREDIT_NOT_AVAILABLE: 'CREDIT_NOT_AVAILABLE',
   CREDIT_LIMIT_EXCEEDED: 'CREDIT_LIMIT_EXCEEDED',
   CREDIT_TERMS_EXIST: 'CREDIT_TERMS_EXIST',
+
+  // Dashboard, reports, invoices and notifications
+  REPORT_RANGE_INVALID: 'REPORT_RANGE_INVALID',
+  INVOICE_NOT_AVAILABLE: 'INVOICE_NOT_AVAILABLE',
+  NOTIFICATION_NOT_RETRYABLE: 'NOTIFICATION_NOT_RETRYABLE',
 } as const;
 
 export type ErrorCodeName = (typeof ErrorCode)[keyof typeof ErrorCode];
