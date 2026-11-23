@@ -44,6 +44,12 @@ model User {
   contractorPrices ContractorPrice[] @relation("ContractorPrices")
   cart             Cart?
 
+  /// Orders placed by this account.
+  orders        Order[]              @relation("UserOrders")
+  creditTerms   CreditTerms?         @relation("ContractorCredit")
+  orderChanges  OrderStatusHistory[] @relation("OrderStatusChanges")
+  recordedPayments Payment[]         @relation("RecordedPayments")
+
   @@index([accountType])
   @@index([isBlocked])
 }
@@ -73,6 +79,10 @@ model Address {
   updatedAt DateTime @updatedAt
 
   carts Cart[]
+
+  /// Orders delivered to this address. Orders keep their own copy of the address,
+  /// so editing or deleting it later never changes an old order.
+  orders Order[] @relation("OrderDeliveryAddress")
 
   @@index([userId])
 }
@@ -163,6 +173,7 @@ model Product {
   contractorPrices ContractorPrice[]
   bulkDiscounts    BulkDiscount[]
   cartItems        CartItem[]
+  orderItems       OrderItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -316,4 +327,212 @@ model CartItem {
 
   @@unique([cartId, productId])
   @@index([productId])
+}
+
+// ---------------------------------------------------------------------------
+// Step 4: orders, payments and contractor credit
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  CONFIRMED
+  PACKED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  ONLINE
+  CASH_ON_DELIVERY
+  CREDIT
+}
+
+/// Payment state of the order as a whole, derived from its successful payments.
+enum PaymentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+}
+
+/// State of one payment attempt or receipt.
+enum PaymentRecordStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  CASH
+  CREDIT
+}
+
+/// Monotonic counters used for human-friendly numbers such as order numbers.
+model Counter {
+  id    String @id @db.VarChar(20)
+  value Int    @default(0)
+}
+
+/// A placed order. Prices are copied onto the order and its lines at the time of
+/// sale, so later price or rule changes never rewrite what the customer bought.
+model Order {
+  id          String @id @default(uuid()) @db.Uuid
+  orderNumber String @unique @db.VarChar(20)
+
+  userId String @db.Uuid
+  user   User   @relation("UserOrders", fields: [userId], references: [id], onDelete: Restrict)
+
+  status OrderStatus @default(CONFIRMED)
+
+  paymentMethod PaymentMethod @default(CASH_ON_DELIVERY)
+  paymentStatus PaymentStatus @default(PENDING)
+  /// Sum of the payments that succeeded so far.
+  amountPaidPaise Int @default(0)
+
+  // Money snapshot, in paise.
+  itemTotalPaise      Int
+  minOrderChargePaise Int @default(0)
+  distanceChargePaise Int @default(0)
+  grandTotalPaise     Int
+  currency            String @default("INR") @db.VarChar(3)
+
+  /// A charge the admin waived on this single order (never on the shop settings).
+  waivedChargeCode String? @db.VarChar(30)
+  waivedChargePaise Int    @default(0)
+  waivedChargeNote String? @db.VarChar(200)
+
+  // Delivery address copied at checkout, so the order keeps the address it was sent to.
+  deliveryAddressId    String?  @db.Uuid
+  deliveryAddress      Address? @relation("OrderDeliveryAddress", fields: [deliveryAddressId], references: [id], onDelete: SetNull)
+  deliveryContactName  String   @db.VarChar(120)
+  deliveryContactPhone String   @db.VarChar(10)
+  deliveryLine1        String   @db.VarChar(200)
+  deliveryLine2        String?  @db.VarChar(200)
+  deliveryLandmark     String?  @db.VarChar(160)
+  deliveryCity         String   @db.VarChar(80)
+  deliveryState        String   @db.VarChar(80)
+  deliveryPincode      String   @db.VarChar(6)
+  distanceKm           Float?
+
+  /// Requested delivery day and slot. The shop confirms the exact timing.
+  deliveryDate DateTime? @db.Date
+  deliverySlot String?   @db.VarChar(60)
+  notes        String?   @db.VarChar(500)
+
+  /// Set by the client on checkout; a repeat with the same key returns this order.
+  idempotencyKey String? @db.VarChar(128)
+
+  placedAt     DateTime  @default(now())
+  cancelledAt  DateTime?
+  cancelReason String?   @db.VarChar(200)
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  payments      Payment[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, placedAt])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([placedAt])
+}
+
+/// One line of an order, with the product details and price frozen at the time of sale.
+model OrderItem {
+  id      String @id @default(uuid()) @db.Uuid
+  orderId String @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String?  @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  sku         String      @db.VarChar(40)
+  name        String      @db.VarChar(160)
+  brand       String      @db.VarChar(80)
+  sizeVariant String?     @db.VarChar(80)
+  unit        ProductUnit
+  photos      String[]    @default([])
+
+  quantity          Int
+  originalPricePaise Int
+  unitPricePaise     Int
+  lineTotalPaise     Int
+
+  appliedRuleType  String  @db.VarChar(40)
+  appliedRuleId    String? @db.Uuid
+  appliedRuleLabel String  @db.VarChar(120)
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+/// Append-only history of order status changes, written on every transition.
+model OrderStatusHistory {
+  id      String @id @default(uuid()) @db.Uuid
+  orderId String @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  note       String?       @db.VarChar(300)
+
+  changedById String? @db.Uuid
+  changedBy   User?   @relation("OrderStatusChanges", fields: [changedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+/// One payment attempt or receipt for an order. Online payments start PENDING and
+/// only become SUCCEEDED after a verified Razorpay signature or webhook.
+model Payment {
+  id      String @id @default(uuid()) @db.Uuid
+  orderId String @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  provider PaymentProvider
+  status   PaymentRecordStatus @default(PENDING)
+
+  amountPaise Int
+
+  /// Razorpay identifiers. The signature flag records that the server verified them.
+  providerOrderId            String? @db.VarChar(80)
+  providerPaymentId          String? @db.VarChar(80) @unique
+  razorpaySignatureVerified  Boolean @default(false)
+
+  note      String?   @db.VarChar(200)
+  receivedAt DateTime?
+
+  recordedById String? @db.Uuid
+  recordedBy   User?   @relation("RecordedPayments", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([providerOrderId])
+}
+
+/// Pay-later terms the admin gives a contractor. Checkout with CREDIT is only
+/// allowed while this exists and is enabled, and stays within the credit limit.
+model CreditTerms {
+  id           String @id @default(uuid()) @db.Uuid
+  contractorId String @unique @db.Uuid
+  contractor   User   @relation("ContractorCredit", fields: [contractorId], references: [id], onDelete: Cascade)
+
+  isEnabled       Boolean @default(true)
+  /// Null means no hard limit; the shop still sees the outstanding balance.
+  creditLimitPaise Int?
+  paymentTermDays  Int    @default(30)
+  notes            String? @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isEnabled])
 }
