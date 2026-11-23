@@ -24,7 +24,7 @@ beforeEach(async () => {
   const { prisma } = await import('../src/lib/prisma');
   const { redis } = await import('../src/lib/redis');
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Address", "ProjectSite", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "Address", "ProjectSite", "Product", "Category", "User" RESTART IDENTITY CASCADE',
   );
   await redis.flushdb();
 });
