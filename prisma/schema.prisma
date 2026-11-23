@@ -97,3 +97,66 @@ model ProjectSite {
 
   @@index([userId])
 }
+
+enum ProductUnit {
+  KG
+  BAG
+  PIECE
+  LITRE
+  BOX
+}
+
+/// Categories and sub-categories. `parentId` is null for a top-level category.
+/// Only two levels are supported, so a category with a parent cannot have children.
+model Category {
+  id          String     @id @default(uuid()) @db.Uuid
+  name        String     @db.VarChar(80)
+  slug        String     @unique @db.VarChar(90)
+  description String?    @db.VarChar(300)
+
+  parentId    String?    @db.Uuid
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Category[] @relation("CategoryTree")
+
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+
+  products    Product[]
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([parentId])
+}
+
+/// A sellable item. Prices are integer paise; everything the shop owner may
+/// change (price, stock, visibility) is editable through admin APIs.
+model Product {
+  id            String      @id @default(uuid()) @db.Uuid
+  sku           String      @unique @db.VarChar(40)
+  name          String      @db.VarChar(160)
+  description   String?     @db.VarChar(1000)
+  brand         String      @db.VarChar(80)
+
+  /// Size / variant label, for example "12 mm" or "20 L pack".
+  sizeVariant   String?     @db.VarChar(80)
+  unit          ProductUnit
+
+  pricePaise    Int
+  stockQuantity Int         @default(0)
+  photos        String[]    @default([])
+
+  categoryId    String      @db.Uuid
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  /// Hidden products stay in the database but disappear from the public API.
+  isActive      Boolean     @default(true)
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([categoryId])
+  @@index([brand])
+  @@index([pricePaise])
+  @@index([isActive])
+}
