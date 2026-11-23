@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { AccountType, PrismaClient, ProductUnit } from '@prisma/client';
 import { normalizePhone } from '../src/lib/phone';
 import { seedPricingAndDelivery } from './pricing.seed';
+import { seedCreditTerms } from './orders.seed';
 
 const prisma = new PrismaClient();
 
@@ -110,6 +111,11 @@ async function main(): Promise<void> {
   if (process.env.SEED_PRICING !== 'false') {
     const summary = await seedPricingAndDelivery(prisma);
     console.log(`Seeded pricing: ${summary}.`);
+  }
+
+  if (process.env.SEED_CREDIT_TERMS !== 'false') {
+    const summary = await seedCreditTerms(prisma);
+    console.log(`Seeded credit terms: ${summary}.`);
   }
 
   console.log('Seed complete.');
