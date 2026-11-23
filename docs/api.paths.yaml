@@ -1,0 +1,587 @@
+# Step 1 paths (accounts, profile, addresses, project sites, admin users).
+# Merged with catalogue.paths.yaml by docs.router.ts.
+paths:
+  /auth/otp/request:
+    post:
+      tags:
+      - Auth
+      summary: Request an OTP
+      description: '6 digit OTP valid for 5 minutes. Rate limited per phone and per IP, with a
+        resend cooldown (`resendAfterSeconds`). Blocked accounts cannot request an OTP.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - phone
+              properties:
+                phone:
+                  type: string
+                  example: '9876543210'
+                accountType:
+                  $ref: '#/components/schemas/AccountType'
+      responses:
+        '200':
+          description: OTP created
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Account is blocked (USER_BLOCKED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 'OTP_RATE_LIMITED or OTP_RESEND_TOO_SOON, both with details.retryAfterSeconds.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /auth/otp/verify:
+    post:
+      tags:
+      - Auth
+      summary: Verify an OTP and log in
+      description: 'Returns a JWT access token. An existing phone logs in. A new phone needs
+        `accountType` (CUSTOMER or CONTRACTOR) and `name`. ADMIN is rejected: admins come from the
+        seed script.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - phone
+              - otp
+              properties:
+                phone:
+                  type: string
+                  example: '9876543210'
+                otp:
+                  type: string
+                  pattern: ^[0-9]{6}$
+                  example: '123456'
+                accountType:
+                  $ref: '#/components/schemas/AccountType'
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 120
+                companyName:
+                  type: string
+                  maxLength: 160
+                gstNumber:
+                  type: string
+                  maxLength: 15
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AuthResult'
+        '400':
+          description: 'OTP_INVALID, OTP_EXPIRED, ACCOUNT_TYPE_REQUIRED, ACCOUNT_TYPE_NOT_ALLOWED
+            or VALIDATION_ERROR.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: OTP_MAX_ATTEMPTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /auth/me:
+    get:
+      tags:
+      - Auth
+      summary: Current user from the token
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated user
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /me:
+    get:
+      tags:
+      - Profile
+      summary: Get my profile
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: My profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags:
+      - Profile
+      summary: Update my profile
+      description: 'Send only what changes. `companyName` and `gstNumber` accept `null` or `""`
+        to clear them. `accountType` cannot be changed (ACCOUNT_TYPE_IMMUTABLE, 409).'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 120
+                companyName:
+                  type: string
+                  maxLength: 160
+                  nullable: true
+                gstNumber:
+                  type: string
+                  maxLength: 15
+                  nullable: true
+                accountType:
+                  $ref: '#/components/schemas/AccountType'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: ACCOUNT_TYPE_IMMUTABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /me/addresses:
+    get:
+      tags:
+      - Addresses
+      summary: List my saved addresses
+      description: Default address first, then newest first.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: My addresses
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+      - Addresses
+      summary: Save a delivery address
+      description: The first address of a user becomes the default one.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '201':
+          description: Address created
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/addresses/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+      - Addresses
+      summary: Get one of my addresses
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Address
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Addresses
+      summary: Update one of my addresses
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '200':
+          description: Updated address
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Addresses
+      summary: Delete one of my addresses
+      description: If the default address is deleted, the most recent remaining one becomes the default.
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /me/project-sites:
+    get:
+      tags:
+      - Project sites
+      summary: List my project sites
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: My project sites
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/ProjectSite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+      - Project sites
+      summary: Create a project site
+      description: Mainly for contractors, but any account may create sites.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSiteInput'
+      responses:
+        '201':
+          description: Project site created
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ProjectSite'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/project-sites/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+      - Project sites
+      summary: Get one of my project sites
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Project site
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ProjectSite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Project sites
+      summary: Update one of my project sites
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSiteInput'
+      responses:
+        '200':
+          description: Updated project site
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ProjectSite'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Project sites
+      summary: Delete one of my project sites
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/users:
+    get:
+      tags:
+      - Admin
+      summary: List users
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: search
+        in: query
+        schema:
+          type: string
+        description: 'Matches phone, name or company name.'
+      - name: accountType
+        in: query
+        schema:
+          $ref: '#/components/schemas/AccountType'
+      - name: isBlocked
+        in: query
+        schema:
+          type: boolean
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Users page
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/AdminUser'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/users/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+      - Admin
+      summary: Get a user
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/users/{id}/block:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+      - Admin
+      summary: Block a user
+      description: 'Blocking disables login immediately: OTP requests are refused and issued tokens
+        stop working. Admin accounts and your own account cannot be blocked.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: Blocked user
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: CANNOT_BLOCK_SELF
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: CANNOT_BLOCK_ADMIN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/users/{id}/unblock:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+      - Admin
+      summary: Unblock a user
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Unblocked user
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
