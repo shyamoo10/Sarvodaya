@@ -5,6 +5,8 @@ import { ErrorCode } from '../../config/error-codes';
 import { getShopSettings, loadPricingContext, priceLine } from '../pricing/pricing.service';
 import { quoteDistanceCharge } from '../delivery/delivery.service';
 import { outstandingCreditPaise } from '../credit/credit.service';
+import { createInvoiceForOrder } from '../invoices/invoice.service';
+import { queueOrderNotifications } from '../notifications/notification.service';
 import type {
   AdminOrderListQuery,
   CheckoutInput,
@@ -360,10 +362,19 @@ export async function checkout(
 
       await tx.cartItem.deleteMany({ where: { cartId: draft.cart.id } });
 
+      // Every order gets its invoice in the same transaction, so it can never be
+      // missing for a sale that actually happened.
+      await createInvoiceForOrder(tx, order.id);
+
       return order;
     });
 
-    return { order: await findOrderWithRelations(created.id), replayed: false };
+    const order = await findOrderWithRelations(created.id);
+    // The customer is told in the background; a notification problem never
+    // fails an order that is already placed.
+    await queueOrderNotifications(created.id, 'ORDER_PLACED');
+
+    return { order, replayed: false };
   } catch (error) {
     // Two identical requests arriving together: the unique key lets one win and
     // the other gets the very same order back.
