@@ -5,6 +5,77 @@ Every pull request updates this file.
 
 ---
 
+## Step 2 - Product catalogue
+
+**Branch:** `step-2-products`
+**Version:** v1.1.0
+
+### Added endpoints
+
+| Method | Path | Auth | Purpose |
+| ------ | ---- | ---- | ------- |
+| GET | `/api/v1/categories` | public | Category tree (top-level categories with sub-categories) |
+| GET | `/api/v1/products` | public | Searchable, filterable, paginated product list |
+| GET | `/api/v1/products/{id}` | public | Product detail |
+| GET | `/api/v1/admin/categories` | Bearer + Admin | Category tree including hidden categories |
+| POST | `/api/v1/admin/categories` | Bearer + Admin | Create a category or sub-category |
+| PATCH | `/api/v1/admin/categories/{id}` | Bearer + Admin | Rename, reorder or hide a category |
+| DELETE | `/api/v1/admin/categories/{id}` | Bearer + Admin | Delete an empty category |
+| GET | `/api/v1/admin/products` | Bearer + Admin | All products, including hidden, with stock |
+| POST | `/api/v1/admin/products` | Bearer + Admin | Add a product |
+| GET | `/api/v1/admin/products/{id}` | Bearer + Admin | Product detail including hidden products |
+| PATCH | `/api/v1/admin/products/{id}` | Bearer + Admin | Edit, hide or unhide a product |
+| PATCH | `/api/v1/admin/products/{id}/stock` | Bearer + Admin | Set stock absolutely or adjust it |
+| POST | `/api/v1/admin/products/import` | Bearer + Admin | Bulk import products from an `.xlsx` file |
+
+### Error codes introduced
+
+`SKU_ALREADY_EXISTS` (409, adding a product with an existing SKU),
+`DUPLICATE_CATEGORY` (409, same name or slug at the same level),
+`CATEGORY_IN_USE` (409, deleting a category that still has products or sub-categories),
+`INVALID_IMPORT_FILE` (400, missing file, not `.xlsx`, unreadable workbook or missing columns).
+
+### Notes for the frontend
+
+* `GET /categories` returns **two levels only**: roots with a `children` array. Render the
+  roots in the sidebar and the children inside each. `productCount` covers that category only
+  (visible products), so a parent's own count can legitimately be `0`.
+* Product units are lowercase strings: `kg`, `bag`, `piece`, `litre`, `box`.
+* Prices are integer **paise** (`6850` = ₹68.50). Format with `paise / 100` on the client.
+* The public product shape has **no stock number**, only `inStock` (boolean). Show "In stock" /
+  "Out of stock"; never show a count on the customer side. The admin shape adds
+  `stockQuantity`, `isActive` and `categoryId`.
+* Hidden products (`isActive: false`) are absent from every public response; `GET /products/{id}`
+  answers `404 NOT_FOUND` for them, same as an unknown id.
+* `GET /products` query parameters: `search` (name, brand or SKU), `category` (slug; a parent
+  slug includes its sub-categories), `brand`, `minPricePaise`, `maxPricePaise`, `inStock`,
+  `sort` (`newest` default, `price_asc`, `price_desc`, `name_asc`), `page`, `limit` (max 100).
+  An unknown `category` slug returns an **empty page**, not an error.
+* Paginated responses carry `meta: { page, limit, total, totalPages }` - use it to build
+  "Load more".
+* `PATCH /admin/products/{id}/stock` takes **exactly one** of `stockQuantity` (absolute) or
+  `adjustment` (relative, e.g. `-2`); sending both or neither is a `VALIDATION_ERROR`. Stock can
+  never go below zero.
+* The product SKU cannot be changed after creation, because bulk imports match on it.
+* Excel import: send `multipart/form-data` with the file in the field `file` (max 5 MB, first
+  sheet, 5000 rows). Prices in the sheet are **rupees**, not paise. The endpoint answers `200`
+  with a report (`totalRows`, `created`, `updated`, `failed`, `errors[]`) even when some rows
+  fail; `errors[].row` is the spreadsheet row number with the header on row 1, so you can point
+  the owner at the exact bad cell. Show the report, not a generic error, whenever you get `200`.
+* Only an unreadable file, a wrong extension or missing columns produce `400
+  INVALID_IMPORT_FILE`; in that case nothing was imported.
+
+### Changed
+
+* Nothing in Step 1 changed behaviour. `GET /health`, `/docs` and all Step 1 endpoints are
+  untouched.
+
+### Deprecated
+
+* Nothing.
+
+---
+
 ## Step 1 - Project setup, accounts and login
 
 **Branch:** `step-1-setup-login`
