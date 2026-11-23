@@ -1,0 +1,412 @@
+# Step 3 admin pricing paths, merged into openapi.yaml by docs.router.ts.
+paths:
+  /admin/pricing/settings:
+    get:
+      tags:
+      - Admin
+      summary: Shop pricing and delivery settings
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ShopSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags:
+      - Admin
+      summary: Change amounts, free-delivery rules and the shop location
+      description: 'Every amount here is data: changing it never needs an app update. Null `freeDeliveryAbovePaise`
+        or `freeDeliveryRadiusKm` switches that rule off.'
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShopSettingsRequest'
+      responses:
+        '200':
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ShopSettings'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/pricing/contractor-prices:
+    get:
+      tags:
+      - Admin
+      summary: List contractor special prices
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: contractorId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: productId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Contractor prices page
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/ContractorPrice'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Give one contractor a special price for one product
+      description: One price per contractor and product; edit the existing one instead of adding
+        a second (CONTRACTOR_PRICE_EXISTS).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContractorPriceRequest'
+      responses:
+        '201':
+          description: Created price
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ContractorPrice'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: NOT_FOUND - contractor or product does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: CONTRACTOR_PRICE_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/pricing/contractor-prices/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Admin
+      summary: Change or pause a contractor price
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContractorPriceRequest'
+      responses:
+        '200':
+          description: Updated price
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ContractorPrice'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Admin
+      summary: Remove a contractor price
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Removed
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/pricing/bulk-discounts:
+    get:
+      tags:
+      - Admin
+      summary: List bulk quantity discounts
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: search
+        in: query
+        schema:
+          type: string
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Bulk discounts page
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/BulkDiscount'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Add a bulk quantity discount
+      description: Scope it to a product, a category (its sub-categories included) or the whole shop
+        by sending neither id. The most specific matching rule wins; at equal scope the highest minimum
+        quantity wins.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBulkDiscountRequest'
+      responses:
+        '201':
+          description: Created discount
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/BulkDiscount'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: NOT_FOUND - product or category does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/pricing/bulk-discounts/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Admin
+      summary: Change or pause a bulk discount
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBulkDiscountRequest'
+      responses:
+        '200':
+          description: Updated discount
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/BulkDiscount'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Admin
+      summary: Delete a bulk discount
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /admin/pricing/contractor-rules:
+    get:
+      tags:
+      - Admin
+      summary: List contractor percentage rules
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: search
+        in: query
+        schema:
+          type: string
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Contractor rules page
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/ContractorRule'
+                    meta:
+                      $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - Admin
+      summary: Add a contractor percentage rule
+      description: Applies to every CONTRACTOR account. Omit `categoryId` to discount the whole catalogue,
+        for example 5% off cement.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContractorRuleRequest'
+      responses:
+        '201':
+          description: Created rule
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ContractorRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: NOT_FOUND - category does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /admin/pricing/contractor-rules/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Admin
+      summary: Change or pause a contractor rule
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContractorRuleRequest'
+      responses:
+        '200':
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/ContractorRule'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Admin
+      summary: Delete a contractor rule
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'

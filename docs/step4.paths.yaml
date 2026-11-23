@@ -1,0 +1,345 @@
+# Step 4 customer order and payment paths, merged by docs.router.ts.
+paths:
+  /orders:
+    get:
+      tags:
+        - Orders
+      summary: Order history of the signed-in account
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: paymentStatus
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
+        - name: from
+          in: query
+          description: Inclusive start date (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: Inclusive end date (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Orders, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Order'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+        - Orders
+      summary: Checkout - turns the stored cart into an order
+      description: >-
+        Prices, charges and the delivery address are copied onto the order at this
+        moment. Stock is reduced in the same database transaction, so two buyers can
+        never receive the same last item. Send an `Idempotency-Key` header so a double
+        tap returns the same order instead of placing two.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: 8 to 128 characters. Repeat the same key to get the same order back.
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '201':
+          description: Order placed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        '200':
+          description: Replay of the same Idempotency-Key (header Idempotent-Replayed true)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        '400':
+          description: CART_EMPTY, DELIVERY_ADDRESS_REQUIRED, PRODUCT_UNAVAILABLE, PINCODE_NOT_SERVICEABLE, OUT_OF_DELIVERY_RANGE or VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: CREDIT_NOT_AVAILABLE - pay later is not enabled for this account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: INSUFFICIENT_STOCK or CREDIT_LIMIT_EXCEEDED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+        - Orders
+      summary: One order with its frozen prices, timeline and payment state
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Orders
+      summary: Cancel an order that is still confirmed, and put its stock back
+      description: >-
+        A customer can cancel while the order is CONFIRMED. The admin can cancel until
+        the order is delivered. Stock is restored exactly once.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderRequest'
+      responses:
+        '200':
+          description: Cancelled order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: ORDER_ALREADY_CANCELLED or INVALID_ORDER_STATUS_CHANGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /orders/{id}/reorder:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Orders
+      summary: One tap reorder - puts the order's items back in the cart
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The refreshed cart plus what could not be added
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ReorderResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders/{id}/payments/online:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Payments
+      summary: Start an online payment (Razorpay) for an ONLINE order
+      description: >-
+        Returns the public key id and the Razorpay order id. The amount is the amount
+        still due. A pending payment for the same amount is reused.
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Payment intent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OnlinePaymentIntent'
+        '400':
+          description: PAYMENT_NOT_ALLOWED - the order is not set to online payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: ORDER_NOT_PAYABLE or PAYMENT_ALREADY_SETTLED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '502':
+          description: PAYMENT_PROVIDER_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: PAYMENT_NOT_CONFIGURED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /payments/razorpay/verify:
+    post:
+      tags:
+        - Payments
+      summary: Verify the Razorpay checkout response and mark the order paid
+      description: >-
+        The signature is a HMAC of "<razorpay_order_id>|<razorpay_payment_id>" with the
+        server key secret. An invalid signature is refused and changes nothing.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRazorpayPaymentRequest'
+      responses:
+        '200':
+          description: Verified payment and the updated order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/VerifyRazorpayPaymentResponse'
+        '400':
+          description: PAYMENT_SIGNATURE_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: ORDER_NOT_PAYABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /payments/razorpay/webhook:
+    post:
+      tags:
+        - Payments
+      summary: Razorpay webhook (called by Razorpay, not by the app)
+      description: >-
+        Public endpoint protected by the webhook signature header `X-Razorpay-Signature`,
+        a HMAC of the raw body with RAZORPAY_WEBHOOK_SECRET. Duplicate deliveries are
+        harmless. Always answer 200 once the signature is valid.
+      parameters:
+        - name: X-Razorpay-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          received:
+                            type: boolean
+                          matched:
+                            type: boolean
+                          alreadyPaid:
+                            type: boolean
+        '400':
+          description: PAYMENT_SIGNATURE_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: PAYMENT_NOT_CONFIGURED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'

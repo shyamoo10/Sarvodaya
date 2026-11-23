@@ -1,0 +1,451 @@
+# Step 4 schemas (orders, payments, contractor credit), merged by docs.router.ts.
+schemas:
+  OrderStatus:
+    type: string
+    enum: [CONFIRMED, PACKED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
+
+  PaymentMethod:
+    type: string
+    enum: [ONLINE, CASH_ON_DELIVERY, CREDIT]
+    description: '`CREDIT` means pay later on the contractor credit terms the admin granted.'
+
+  PaymentStatus:
+    type: string
+    enum: [PENDING, PARTIALLY_PAID, PAID]
+
+  OrderItemView:
+    type: object
+    description: The product details and price exactly as they were at the time of sale.
+    properties:
+      id:
+        type: string
+        format: uuid
+      productId:
+        type: string
+        format: uuid
+        nullable: true
+        description: Null when the product was removed from the catalogue since.
+      sku:
+        type: string
+      name:
+        type: string
+      brand:
+        type: string
+      sizeVariant:
+        type: string
+        nullable: true
+      unit:
+        type: string
+        enum: [kg, bag, piece, litre, box]
+      photos:
+        type: array
+        items:
+          type: string
+      quantity:
+        type: integer
+      originalPricePaise:
+        type: integer
+      unitPricePaise:
+        type: integer
+      lineTotalPaise:
+        type: integer
+      appliedRule:
+        $ref: '#/components/schemas/AppliedRule'
+    required: [id, quantity, originalPricePaise, unitPricePaise, lineTotalPaise, appliedRule]
+
+  OrderMoney:
+    type: object
+    properties:
+      itemTotalPaise:
+        type: integer
+      minOrderChargePaise:
+        type: integer
+      distanceChargePaise:
+        type: integer
+      waivedCharge:
+        type: object
+        nullable: true
+        description: A charge the admin waived on this one order.
+        properties:
+          code:
+            type: string
+            enum: [MIN_ORDER_CHARGE, DISTANCE_CHARGE]
+          amountPaise:
+            type: integer
+          note:
+            type: string
+            nullable: true
+      grandTotalPaise:
+        type: integer
+      currency:
+        type: string
+        example: INR
+    required: [itemTotalPaise, minOrderChargePaise, distanceChargePaise, grandTotalPaise, currency]
+
+  OrderDelivery:
+    type: object
+    description: The delivery address copied at checkout, so later edits never change an old order.
+    properties:
+      addressId:
+        type: string
+        format: uuid
+        nullable: true
+      contactName:
+        type: string
+      contactPhone:
+        type: string
+      line1:
+        type: string
+      line2:
+        type: string
+        nullable: true
+      landmark:
+        type: string
+        nullable: true
+      city:
+        type: string
+      state:
+        type: string
+      pincode:
+        type: string
+      distanceKm:
+        type: number
+        nullable: true
+      requestedDate:
+        type: string
+        format: date
+        nullable: true
+      slot:
+        type: string
+        nullable: true
+      notes:
+        type: string
+        nullable: true
+
+  OrderPayment:
+    type: object
+    properties:
+      method:
+        $ref: '#/components/schemas/PaymentMethod'
+      methodLabel:
+        type: string
+        example: Cash on delivery
+      status:
+        $ref: '#/components/schemas/PaymentStatus'
+      amountPaidPaise:
+        type: integer
+      amountDuePaise:
+        type: integer
+      isPayLater:
+        type: boolean
+      canPayOnline:
+        type: boolean
+        description: True only for an ONLINE order that still has an amount due.
+
+  OrderTimelineEntry:
+    type: object
+    properties:
+      fromStatus:
+        allOf:
+          - $ref: '#/components/schemas/OrderStatus'
+        nullable: true
+      toStatus:
+        $ref: '#/components/schemas/OrderStatus'
+      note:
+        type: string
+        nullable: true
+      changedBy:
+        type: object
+        nullable: true
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+      at:
+        type: string
+        format: date-time
+
+  Order:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      orderNumber:
+        type: string
+        example: SAR-000042
+      status:
+        $ref: '#/components/schemas/OrderStatus'
+      placedAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+      cancelledAt:
+        type: string
+        format: date-time
+        nullable: true
+      cancelReason:
+        type: string
+        nullable: true
+      payment:
+        $ref: '#/components/schemas/OrderPayment'
+      money:
+        $ref: '#/components/schemas/OrderMoney'
+      delivery:
+        $ref: '#/components/schemas/OrderDelivery'
+      items:
+        type: array
+        items:
+          $ref: '#/components/schemas/OrderItemView'
+      timeline:
+        type: array
+        items:
+          $ref: '#/components/schemas/OrderTimelineEntry'
+
+  AdminOrder:
+    allOf:
+      - $ref: '#/components/schemas/Order'
+      - type: object
+        properties:
+          customer:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+          payments:
+            type: array
+            items:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                provider:
+                  type: string
+                  enum: [RAZORPAY, CASH, CREDIT]
+                status:
+                  type: string
+                  enum: [PENDING, SUCCEEDED, FAILED]
+                amountPaise:
+                  type: integer
+                providerOrderId:
+                  type: string
+                  nullable: true
+                providerPaymentId:
+                  type: string
+                  nullable: true
+                signatureVerified:
+                  type: boolean
+                note:
+                  type: string
+                  nullable: true
+                receivedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+                createdAt:
+                  type: string
+                  format: date-time
+
+  CheckoutRequest:
+    type: object
+    properties:
+      addressId:
+        type: string
+        format: uuid
+        description: Defaults to the address saved on the cart, then the default address.
+      deliveryDate:
+        type: string
+        format: date
+        description: Today or later, YYYY-MM-DD.
+      deliverySlot:
+        type: string
+        example: 9 AM - 12 PM
+      notes:
+        type: string
+        maxLength: 500
+      paymentMethod:
+        allOf:
+          - $ref: '#/components/schemas/PaymentMethod'
+        default: CASH_ON_DELIVERY
+
+  CancelOrderRequest:
+    type: object
+    properties:
+      reason:
+        type: string
+        maxLength: 200
+
+  UpdateOrderStatusRequest:
+    type: object
+    required: [status]
+    properties:
+      status:
+        type: string
+        enum: [PACKED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
+      note:
+        type: string
+        maxLength: 300
+
+  WaiveChargeRequest:
+    type: object
+    required: [charge]
+    properties:
+      charge:
+        type: string
+        enum: [MIN_ORDER_CHARGE, DISTANCE_CHARGE]
+      note:
+        type: string
+        maxLength: 200
+
+  RecordPaymentRequest:
+    type: object
+    required: [amountPaise]
+    properties:
+      amountPaise:
+        type: integer
+        minimum: 1
+      note:
+        type: string
+        maxLength: 200
+
+  OnlinePaymentIntent:
+    type: object
+    description: Pass these to the Razorpay checkout on the device; the secret never leaves the server.
+    properties:
+      keyId:
+        type: string
+      razorpayOrderId:
+        type: string
+      amountPaise:
+        type: integer
+      currency:
+        type: string
+      orderNumber:
+        type: string
+
+  VerifyRazorpayPaymentRequest:
+    type: object
+    required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
+    properties:
+      razorpayOrderId:
+        type: string
+      razorpayPaymentId:
+        type: string
+      razorpaySignature:
+        type: string
+
+  VerifyRazorpayPaymentResponse:
+    type: object
+    properties:
+      order:
+        $ref: '#/components/schemas/Order'
+      alreadyVerified:
+        type: boolean
+
+  ReorderResult:
+    type: object
+    properties:
+      cart:
+        $ref: '#/components/schemas/CartView'
+      added:
+        type: integer
+      skipped:
+        type: array
+        items:
+          type: object
+          properties:
+            sku:
+              type: string
+            name:
+              type: string
+            reason:
+              type: string
+              enum: [PRODUCT_REMOVED, UNAVAILABLE]
+
+  CreditTerms:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      contractorId:
+        type: string
+        format: uuid
+      contractor:
+        type: object
+        properties:
+          id:
+            type: string
+            format: uuid
+          name:
+            type: string
+          phone:
+            type: string
+          companyName:
+            type: string
+            nullable: true
+      isEnabled:
+        type: boolean
+      creditLimitPaise:
+        type: integer
+        nullable: true
+        description: Null means no hard limit; the outstanding balance is still shown.
+      paymentTermDays:
+        type: integer
+      notes:
+        type: string
+        nullable: true
+      outstandingPaise:
+        type: integer
+        description: Unpaid amount across this contractor's newest credit orders.
+      availablePaise:
+        type: integer
+        nullable: true
+
+  CreateCreditTermsRequest:
+    type: object
+    required: [contractorId]
+    properties:
+      contractorId:
+        type: string
+        format: uuid
+        description: Must be an account with accountType CONTRACTOR.
+      isEnabled:
+        type: boolean
+        default: true
+      creditLimitPaise:
+        type: integer
+        minimum: 0
+        nullable: true
+      paymentTermDays:
+        type: integer
+        minimum: 1
+        maximum: 365
+        default: 30
+      notes:
+        type: string
+        maxLength: 300
+
+  UpdateCreditTermsRequest:
+    type: object
+    minProperties: 1
+    properties:
+      isEnabled:
+        type: boolean
+      creditLimitPaise:
+        type: integer
+        minimum: 0
+        nullable: true
+      paymentTermDays:
+        type: integer
+        minimum: 1
+        maximum: 365
+      notes:
+        type: string
+        nullable: true

@@ -1,0 +1,378 @@
+# Step 4 admin order and credit paths, merged by docs.router.ts.
+paths:
+  /admin/orders:
+    get:
+      tags:
+        - Admin
+      summary: All orders, filterable
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: paymentStatus
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
+        - name: paymentMethod
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentMethod'
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          description: Order number, customer phone or customer name.
+          schema:
+            type: string
+            maxLength: 80
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Orders page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AdminOrder'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+        - Admin
+      summary: One order with its payments and history
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminOrder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/orders/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+        - Admin
+      summary: Move an order to its next status (CONFIRMED, PACKED, OUT_FOR_DELIVERY, DELIVERED)
+      description: >-
+        Only the admin changes status, and only forward. CANCELLED restores the stock,
+        exactly like the cancel endpoint. Every change is written to the order timeline.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminOrder'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: INVALID_ORDER_STATUS_CHANGE with the allowed next statuses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/orders/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Admin
+      summary: Cancel any order that has not been delivered
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderRequest'
+      responses:
+        '200':
+          description: Cancelled order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminOrder'
+        '409':
+          description: ORDER_ALREADY_CANCELLED or INVALID_ORDER_STATUS_CHANGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/orders/{id}/waive-charge:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Admin
+      summary: Waive the minimum order charge or the delivery charge on this one order
+      description: >-
+        The shop settings are untouched, so every other order keeps its normal charge.
+        One waiver per order.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaiveChargeRequest'
+      responses:
+        '200':
+          description: Order with the charge waived
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminOrder'
+        '409':
+          description: CHARGE_ALREADY_WAIVED or INVALID_ORDER_STATUS_CHANGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/orders/{id}/payments:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Admin
+      summary: Record money received, for example cash on delivery
+      description: >-
+        Partial amounts move the order to PARTIALLY_PAID; the rest completes it as PAID.
+        An amount above what is due is refused.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentRequest'
+      responses:
+        '201':
+          description: Payment recorded and the updated order
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminOrder'
+        '400':
+          description: PAYMENT_AMOUNT_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: PAYMENT_ALREADY_SETTLED or INVALID_ORDER_STATUS_CHANGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/credit-terms:
+    get:
+      tags:
+        - Admin
+      summary: Contractors with pay-later terms and their outstanding balance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: Contractor name, company or phone.
+          schema:
+            type: string
+            maxLength: 80
+        - name: isEnabled
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Credit terms page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CreditTerms'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+        - Admin
+      summary: Give a contractor pay-later terms
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCreditTermsRequest'
+      responses:
+        '201':
+          description: Created terms
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreditTerms'
+        '404':
+          description: NOT_FOUND - contractor not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: CREDIT_TERMS_EXIST
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/credit-terms/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+        - Admin
+      summary: One contractor's credit terms
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Credit terms
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreditTerms'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - Admin
+      summary: Change the limit, the payment term or switch credit off
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCreditTermsRequest'
+      responses:
+        '200':
+          description: Updated terms
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreditTerms'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+        - Admin
+      summary: Remove credit terms
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
