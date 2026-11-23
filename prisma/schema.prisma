@@ -1,0 +1,99 @@
+// Prisma schema for the Sarvodaya hardware shop API.
+// Money is always stored as integer paise (see the order models added in later steps).
+// Everything the shop owner may change (prices, charges, slabs, pincodes) belongs
+// in data tables driven by admin APIs, never in code.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  CUSTOMER
+  CONTRACTOR
+  ADMIN
+}
+
+model User {
+  id           String      @id @default(uuid()) @db.Uuid
+  phone        String      @unique @db.VarChar(10)
+  name         String      @db.VarChar(120)
+  accountType  AccountType @default(CUSTOMER)
+
+  /// Optional for every account type. Never required to place an order.
+  companyName  String?     @db.VarChar(160)
+  gstNumber    String?     @db.VarChar(15)
+
+  /// Admin block flag: when true the account cannot log in and existing tokens stop working.
+  isBlocked    Boolean     @default(false)
+  blockedAt    DateTime?
+  blockedReason String?    @db.VarChar(200)
+
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  addresses    Address[]
+  projectSites ProjectSite[]
+
+  @@index([accountType])
+  @@index([isBlocked])
+}
+
+/// Saved delivery address (home, shop, site office...).
+model Address {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  label        String?  @db.VarChar(40)
+  contactName  String   @db.VarChar(120)
+  contactPhone String   @db.VarChar(10)
+
+  line1        String   @db.VarChar(200)
+  line2        String?  @db.VarChar(200)
+  landmark     String?  @db.VarChar(160)
+  city         String   @db.VarChar(80)
+  state        String   @db.VarChar(80)
+  pincode      String   @db.VarChar(6)
+
+  latitude     Float?
+  longitude    Float?
+
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// Contractor project site. Customers may use it too (e.g. building a house).
+model ProjectSite {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  siteName     String   @db.VarChar(120)
+  contactName  String?  @db.VarChar(120)
+  contactPhone String?  @db.VarChar(10)
+
+  line1        String   @db.VarChar(200)
+  line2        String?  @db.VarChar(200)
+  landmark     String?  @db.VarChar(160)
+  city         String   @db.VarChar(80)
+  state        String   @db.VarChar(80)
+  pincode      String   @db.VarChar(6)
+
+  latitude     Float?
+  longitude    Float?
+  notes        String?  @db.VarChar(500)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
