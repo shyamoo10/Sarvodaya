@@ -50,6 +50,11 @@ model User {
   orderChanges  OrderStatusHistory[] @relation("OrderStatusChanges")
   recordedPayments Payment[]         @relation("RecordedPayments")
 
+  /// Step 5: order notifications, push tokens and the admin audit trail.
+  notifications Notification[] @relation("UserNotifications")
+  deviceTokens  DeviceToken[]
+  auditLogs     AuditLog[]
+
   @@index([accountType])
   @@index([isBlocked])
 }
@@ -429,6 +434,8 @@ model Order {
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
   payments      Payment[]
+  notifications Notification[]
+  invoice       Invoice?
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
@@ -535,4 +542,146 @@ model CreditTerms {
   updatedAt DateTime @updatedAt
 
   @@index([isEnabled])
+}
+
+// ---------------------------------------------------------------------------
+// Step 5: admin dashboard, notifications, invoices, reports and audit log
+// ---------------------------------------------------------------------------
+
+enum NotificationChannel {
+  PUSH
+  SMS
+  WHATSAPP
+}
+
+/// The customer-facing moments of an order. CONFIRMED is sent when the shop
+/// starts packing (CONFIRMED -> PACKED), DISPATCHED when the order leaves
+/// (OUT_FOR_DELIVERY) and DELIVERED when it reaches the buyer.
+enum NotificationEvent {
+  ORDER_PLACED
+  ORDER_CONFIRMED
+  ORDER_DISPATCHED
+  ORDER_DELIVERED
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+/// One queued notification. The row itself is the queue: a background worker
+/// picks up due rows, sends them and retries a few times before giving up, so a
+/// failed push or SMS never blocks an order.
+model Notification {
+  id      String  @id @default(uuid()) @db.Uuid
+  userId  String  @db.Uuid
+  user    User    @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  orderId String? @db.Uuid
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  event   NotificationEvent
+  channel NotificationChannel
+  status  NotificationStatus  @default(PENDING)
+
+  title String @db.VarChar(160)
+  body  String @db.VarChar(600)
+
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(5)
+  nextAttemptAt DateTime  @default(now())
+  lastError     String?   @db.VarChar(500)
+  sentAt        DateTime?
+  providerMessageId String? @db.VarChar(80)
+
+  /// Stops the same event and channel being queued twice for one order.
+  dedupeKey String? @unique @db.VarChar(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt])
+  @@index([orderId])
+}
+
+/// Push registration token for one device of one account.
+model DeviceToken {
+  id       String @id @default(uuid()) @db.Uuid
+  userId   String @db.Uuid
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token    String         @unique @db.VarChar(300)
+  platform DevicePlatform @default(ANDROID)
+  isActive Boolean        @default(true)
+
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+enum InvoiceKind {
+  /// The buyer gave a GST number at checkout.
+  TAX_INVOICE
+  /// A normal bill for a buyer without a GST number.
+  BILL
+}
+
+/// One invoice per order, numbered from the invoice counter and created in the
+/// same transaction as the order. Amounts are the order's frozen totals; taxes
+/// are not invented here, the shop's accountant can add them outside the API.
+model Invoice {
+  id            String @id @default(uuid()) @db.Uuid
+  orderId       String @unique @db.Uuid
+  order         Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  invoiceNumber String      @unique @db.VarChar(24)
+  kind          InvoiceKind
+  buyerGstNumber  String? @db.VarChar(15)
+  sellerGstNumber String? @db.VarChar(15)
+
+  itemTotalPaise  Int
+  chargesPaise    Int
+  grandTotalPaise Int
+  currency        String @default("INR") @db.VarChar(3)
+
+  issuedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([issuedAt])
+}
+
+/// Append-only record of every admin change: who did what, to which record.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  actorId   String? @db.Uuid
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorName String? @db.VarChar(120)
+  actorPhone String? @db.VarChar(10)
+
+  /// Stable action name such as "ADMIN_PRODUCT_UPDATE".
+  action     String  @db.VarChar(60)
+  entityType String  @db.VarChar(40)
+  entityId   String? @db.VarChar(64)
+
+  summary  String? @db.VarChar(300)
+  metadata Json?
+
+  ipAddress String? @db.VarChar(64)
+  requestId String? @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
 }
