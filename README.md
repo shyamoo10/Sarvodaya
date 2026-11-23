@@ -274,8 +274,8 @@ lines the app shows separately:
 * `MIN_ORDER_CHARGE` — added when the item total is below `minOrderAmountPaise`, together with
   `amountToAvoidChargePaise` so the app can say "add ₹200 more to remove this charge".
 * `DISTANCE_CHARGE` — from the shop location to the cart's delivery address using the active
-distance slabs. It is `0` when the order is above `freeDeliveryAbovePaise` or the address is
-within `freeDeliveryRadiusKm`.
+  distance slabs. It is `0` when the order is above `freeDeliveryAbovePaise` or the address is
+  within `freeDeliveryRadiusKm`.
 
 `grandTotalPaise` is the item total plus the two charges. The delivery address comes from
 `?addressId`, else the cart's saved address, else the account's default (or newest) address; with
@@ -331,6 +331,7 @@ prisma/
 src/
   app.ts                 Express app factory (CORS, helmet, docs, error handling)
   index.ts               server bootstrap + graceful shutdown
+  routes.ts              mounts every module router
   config/                validated env and the stable error-code list
   lib/                   Prisma, Redis, JWT, OTP hashing, geo, HTTP helpers, logger
   middleware/            request id, auth, admin guard, validation, error handler
@@ -341,15 +342,17 @@ src/
   modules/cart/          server-side cart, priced lines and charges
   modules/delivery/      distance slabs, serviceable pincodes, delivery quote
   modules/admin/         user list, block/unblock
-  docs/                  Swagger UI + raw OpenAPI
-  routes.ts              mounts every module router
-  routes/                route table
-  utils/                 small shared helpers
   docs/                  Swagger UI + raw OpenAPI (merged from docs/*.yaml)
+  types/                 shared TypeScript types
 docs/
   openapi.yaml           root of the contract the frontend builds against
-  *.paths.yaml           paths per step and area
-  *.schemas.yaml         component schemas
+  data.paths.yaml        Step 1 paths
+  catalogue.paths.yaml   Step 2 paths
+  step3.paths.yaml       Step 3 cart paths
+  pricing.paths.yaml     Step 3 admin pricing paths
+  delivery.paths.yaml    Step 3 admin delivery paths
+  schemas.openapi.yaml   Step 1 and 2 schemas
+  step3.schemas.yaml     Step 3 schemas
   CHANGELOG-API.md       per-PR notes for the frontend developer
 tests/                   Vitest + Supertest integration tests
 ```
@@ -360,7 +363,7 @@ tests/                   Vitest + Supertest integration tests
 * CI must be green before merging: `npm install`, `prisma generate`, `prisma migrate deploy`,
   `npm run typecheck`, `npm test`.
 * `package-lock.json` is not committed yet (the first clone generates it). Commit the lockfile
-  once your local install produces it so later builds are reproducible; `npm install` and CI
-  honour it automatically.
+  once your local install produces it so builds are reproducible; `npm install` and CI honour
+  it automatically.
 * Every PR updates `docs/CHANGELOG-API.md`.
 * Secrets only ever live in environment variables; `.env` is git-ignored.
