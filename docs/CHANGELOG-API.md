@@ -5,6 +5,43 @@ Every pull request updates this file.
 
 ---
 
+## Step 6 - Final review
+
+**Branch:** `step-6-final-review`
+**Version:** v1.4.1
+
+### Added endpoints
+
+None. This step changes no request and no response shape, so nothing on the frontend needs
+to change.
+
+### Notes for the frontend
+
+* **Ownership is enforced on every order route.** A customer's list is filtered by the token,
+  and another account's order id answers `404` for detail, cancel, reorder and invoice. The
+  `userId` query filter on `GET /orders` is honoured for admins only, so passing it as a
+  customer changes nothing. Treat a `404` on an order as "not mine or not there" - it is
+  deliberately the same answer.
+* **New indexes, same contract.** Migration `20261123123000_search_and_list_indexes` adds
+  `(status, placedAt)` on orders, `(isActive, name)` on products and trigram indexes for the
+  text searches (product name, brand, sku; order number; customer name). Search and the order
+  lists get faster; no field, code or status changed.
+* **New docs:** `docs/deployment-checklist.md` for whoever deploys, and
+  `docs/api-summary.md`, a one-page summary of every endpoint the app calls with the error
+  codes worth handling by name.
+
+### Changed
+
+* `tests/orders.test.ts` now asserts the full isolation set: the other account's list is
+  empty, and detail, cancel, reorder and invoice all answer `404`.
+* README gained a short section on isolation and indexes and links to the two new documents.
+
+### Deprecated
+
+* Nothing.
+
+---
+
 ## Step 5 - Admin tools, notifications and invoices
 
 **Branch:** `step-5-admin-notifications`
