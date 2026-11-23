@@ -1,0 +1,1143 @@
+openapi: 3.0.3
+info:
+  title: Sarvodaya API
+  version: 1.0.0
+  description: |
+    Backend API for Sarvodaya, a hardware shop app (TMT steel, cement, paint, nuts, bolts, screws).
+
+    **Step 1 covers accounts and login**: phone + OTP login (no passwords), Customer/Contractor
+    sign-up, admin accounts created only by the seed script, profile, saved delivery addresses,
+    project sites, and the admin block flag.
+
+    ## Conventions
+    * All amounts (added in later steps) are integer **paise**, never floats.
+    * Every success returns `{ "success": true, "data": ... }`.
+    * Every error returns `{ "success": false, "error": { "code", "message", "details"? }, "requestId" }`.
+    * Switch on `error.code`; it is stable. `error.message` is for humans and may change.
+    * Phone numbers are 10 digit Indian mobile numbers. `accountType` is `CUSTOMER`, `CONTRACTOR` or `ADMIN`.
+    * `companyName` and `gstNumber` are always optional.
+
+    ## Development OTP
+    When `NODE_ENV` is not `production` the API accepts the fixed OTP `123456`
+    (configurable with `DEV_FIXED_OTP`) and echoes it back as `devOtp` in the
+    request-OTP response. The fixed OTP is hard-disabled in production.
+  contact:
+    name: Sarvodaya API team
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+tags:
+  - name: Auth
+    description: OTP login
+  - name: Profile
+    description: Current user profile
+  - name: Addresses
+    description: Saved delivery addresses
+  - name: Project sites
+    description: Contractor project sites
+  - name: Admin
+    description: Shop-owner only endpoints
+
+paths:
+  /auth/otp/request:
+    post:
+      tags: [Auth]
+      summary: Request an OTP
+      description: |
+        Sends a 6 digit OTP valid for 5 minutes to the given mobile number.
+        Rate limited per phone and per IP, with a resend cooldown
+        (`resendAfterSeconds` in the response). Blocked accounts cannot request an OTP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  example: '9876543210'
+                  description: 10 digit Indian mobile number. `+91` and spaces are accepted and normalised.
+                accountType:
+                  $ref: '#/components/schemas/AccountType'
+                  description: Optional hint used at sign-up. The type is confirmed during verify.
+      responses:
+        '200':
+          description: OTP created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/OtpRequestResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Account is blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                blocked:
+                  value:
+                    success: false
+                    error:
+                      code: USER_BLOCKED
+                      message: This account has been blocked. Please contact the shop.
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+        '429':
+          description: Rate limited or requested too soon
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                cooldown:
+                  value:
+                    success: false
+                    error:
+                      code: OTP_RESEND_TOO_SOON
+                      message: Please wait 42 seconds before requesting another OTP.
+                      details:
+                        retryAfterSeconds: 42
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+                rateLimited:
+                  value:
+                    success: false
+                    error:
+                      code: OTP_RATE_LIMITED
+                      message: Too many OTP requests. Please try again later.
+                      details:
+                        retryAfterSeconds: 3600
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+
+  /auth/otp/verify:
+    post:
+      tags: [Auth]
+      summary: Verify an OTP and log in
+      description: |
+        On success returns an access token (JWT, `Authorization: Bearer <token>`).
+
+        * Existing phone number: logs in, `name`/`accountType` are ignored.
+        * New phone number: `accountType` (CUSTOMER or CONTRACTOR) and `name` are required.
+        * `ADMIN` can never be selected here; admin accounts are created by the seed script.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp]
+              properties:
+                phone:
+                  type: string
+                  example: '9876543210'
+                otp:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+                  example: '123456'
+                accountType:
+                  $ref: '#/components/schemas/AccountType'
+                  description: Required for a new phone number. ADMIN is rejected.
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 120
+                  description: Required for a new phone number.
+                companyName:
+                  type: string
+                  maxLength: 160
+                  description: Optional at sign-up.
+                gstNumber:
+                  type: string
+                  maxLength: 15
+                  description: Optional at sign-up.
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthResult'
+        '400':
+          description: Invalid/expired OTP, missing account type, or validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                invalidOtp:
+                  value:
+                    success: false
+                    error:
+                      code: OTP_INVALID
+                      message: Incorrect OTP
+                      details:
+                        remainingAttempts: 4
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+                expired:
+                  value:
+                    success: false
+                    error:
+                      code: OTP_EXPIRED
+                      message: This OTP has expired. Request a new one.
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+                accountTypeRequired:
+                  value:
+                    success: false
+                    error:
+                      code: ACCOUNT_TYPE_REQUIRED
+                      message: accountType (CUSTOMER or CONTRACTOR) is required to create an account
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: Too many incorrect attempts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                maxAttempts:
+                  value:
+                    success: false
+                    error:
+                      code: OTP_MAX_ATTEMPTS
+                      message: Too many incorrect attempts. Request a new OTP.
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user from the token
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The authenticated user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /me:
+    get:
+      tags: [Profile]
+      summary: Get my profile
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: My profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags: [Profile]
+      summary: Update my profile
+      description: |
+        Name and phone are always present. `companyName` and `gstNumber` are optional:
+        send `null` or `""` to clear them. Account type cannot be changed.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 120
+                companyName:
+                  type: string
+                  maxLength: 160
+                  nullable: true
+                gstNumber:
+                  type: string
+                  maxLength: 15
+                  nullable: true
+                  example: 27ABCDE1234F1Z5
+                accountType:
+                  $ref: '#/components/schemas/AccountType'
+                  description: Read-only. Sending a different value returns ACCOUNT_TYPE_IMMUTABLE.
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Account type cannot be changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                immutable:
+                  value:
+                    success: false
+                    error:
+                      code: ACCOUNT_TYPE_IMMUTABLE
+                      message: Account type cannot be changed after sign-up
+                    requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+
+  /me/addresses:
+    get:
+      tags: [Addresses]
+      summary: List my saved addresses
+      description: Default address first, then newest first.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: My addresses
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Addresses]
+      summary: Save a delivery address
+      description: The first address of a user automatically becomes the default one.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '201':
+          description: Address created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/addresses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Addresses]
+      summary: Get one of my addresses
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Address
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Addresses]
+      summary: Update one of my addresses
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressInput'
+      responses:
+        '200':
+          description: Updated address
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Address'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Addresses]
+      summary: Delete one of my addresses
+      description: If the deleted address was the default, the most recent remaining address becomes the default.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /me/project-sites:
+    get:
+      tags: [Project sites]
+      summary: List my project sites
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: My project sites
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ProjectSite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Project sites]
+      summary: Create a project site
+      description: Mainly for contractors, but any account may create sites.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSiteInput'
+      responses:
+        '201':
+          description: Project site created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProjectSite'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/project-sites/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Project sites]
+      summary: Get one of my project sites
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Project site
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProjectSite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Project sites]
+      summary: Update one of my project sites
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectSiteInput'
+      responses:
+        '200':
+          description: Updated project site
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ProjectSite'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Project sites]
+      summary: Delete one of my project sites
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Matches phone, name or company name.
+        - name: accountType
+          in: query
+          schema:
+            $ref: '#/components/schemas/AccountType'
+        - name: isBlocked
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Users page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AdminUser'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [Admin]
+      summary: Get a user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/block:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Admin]
+      summary: Block a user
+      description: |
+        Blocking disables login immediately: OTP requests are refused and existing
+        tokens stop working. Admin accounts and your own account cannot be blocked.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 200
+      responses:
+        '200':
+          description: Blocked user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: You cannot block your own account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Admin accounts cannot be blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/unblock:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags: [Admin]
+      summary: Unblock a user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Unblocked user
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            phone:
+              value:
+                success: false
+                error:
+                  code: VALIDATION_ERROR
+                  message: Request validation failed
+                  details:
+                    - field: phone
+                      message: Enter a valid 10 digit Indian mobile number
+                requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+    Unauthorized:
+      description: Missing, invalid or expired token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            unauthorized:
+              value:
+                success: false
+                error:
+                  code: UNAUTHORIZED
+                  message: Missing bearer token
+                requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+    Forbidden:
+      description: Account is blocked or lacks permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            blocked:
+              value:
+                success: false
+                error:
+                  code: USER_BLOCKED
+                  message: Your account has been blocked. Please contact the shop.
+                requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+    NotFound:
+      description: Record not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            notFound:
+              value:
+                success: false
+                error:
+                  code: NOT_FOUND
+                  message: Address not found
+                requestId: 8f1c0f2e-2f6c-4c3a-9f0f-2b1a5e6d7c88
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          description: Endpoint specific payload.
+        meta:
+          type: object
+          additionalProperties: true
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            details:
+              description: Extra machine-readable context (for example remaining OTP attempts).
+        requestId:
+          type: string
+          description: Same value as the X-Request-Id response header.
+
+    ErrorCode:
+      type: string
+      description: Stable machine-readable error code. Switch on this, never on the message.
+      enum:
+        - VALIDATION_ERROR
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - ROUTE_NOT_FOUND
+        - NOT_FOUND
+        - INTERNAL_ERROR
+        - OTP_RATE_LIMITED
+        - OTP_RESEND_TOO_SOON
+        - OTP_EXPIRED
+        - OTP_INVALID
+        - OTP_MAX_ATTEMPTS
+        - ACCOUNT_TYPE_REQUIRED
+        - ACCOUNT_TYPE_NOT_ALLOWED
+        - ACCOUNT_TYPE_IMMUTABLE
+        - USER_BLOCKED
+        - CANNOT_BLOCK_ADMIN
+        - CANNOT_BLOCK_SELF
+
+    AccountType:
+      type: string
+      enum: [CUSTOMER, CONTRACTOR, ADMIN]
+
+    OtpRequestResult:
+      type: object
+      required:
+        - otpRequestId
+        - phone
+        - expiresAt
+        - expiresInSeconds
+        - resendAfterSeconds
+        - isNewUser
+      properties:
+        otpRequestId:
+          type: string
+          format: uuid
+        phone:
+          type: string
+          example: '9876543210'
+        expiresAt:
+          type: string
+          format: date-time
+        expiresInSeconds:
+          type: integer
+          example: 300
+        resendAfterSeconds:
+          type: integer
+          example: 60
+        isNewUser:
+          type: boolean
+          description: True when this phone has no account yet, so verify needs accountType and name.
+        devOtp:
+          type: string
+          description: |
+            Only present in development and test environments (fixed development OTP).
+            Never present in production.
+
+    AuthResult:
+      type: object
+      required: [accessToken, tokenType, expiresInSeconds, user, isNewUser]
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresInSeconds:
+          type: integer
+          example: 2592000
+        user:
+          $ref: '#/components/schemas/User'
+        isNewUser:
+          type: boolean
+
+    User:
+      type: object
+      required: [id, phone, name, accountType, isBlocked, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        phone:
+          type: string
+          example: '9876543210'
+        name:
+          type: string
+          example: Ramesh Kumar
+        accountType:
+          $ref: '#/components/schemas/AccountType'
+        companyName:
+          type: string
+          nullable: true
+        gstNumber:
+          type: string
+          nullable: true
+        isBlocked:
+          type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminUser:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            blockedAt:
+              type: string
+              format: date-time
+              nullable: true
+            blockedReason:
+              type: string
+              nullable: true
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Address:
+      type: object
+      required: [id, contactName, contactPhone, line1, city, state, pincode, isDefault, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          nullable: true
+          example: Home
+        contactName:
+          type: string
+        contactPhone:
+          type: string
+        line1:
+          type: string
+        line2:
+          type: string
+          nullable: true
+        landmark:
+          type: string
+          nullable: true
+        city:
+          type: string
+        state:
+          type: string
+        pincode:
+          type: string
+          example: '411005'
+        latitude:
+          type: number
+          nullable: true
+          example: 18.5204
+        longitude:
+          type: number
+          nullable: true
+          example: 73.8567
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AddressInput:
+      type: object
+      required: [contactName, contactPhone, line1, city, state, pincode]
+      description: On PATCH every field is optional; send only what changed.
+      properties:
+        label:
+          type: string
+          maxLength: 40
+          nullable: true
+        contactName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        contactPhone:
+          type: string
+          example: '9876543210'
+        line1:
+          type: string
+          minLength: 3
+          maxLength: 200
+        line2:
+          type: string
+          maxLength: 200
+          nullable: true
+        landmark:
+          type: string
+          maxLength: 160
+          nullable: true
+        city:
+          type: string
+          minLength: 2
+          maxLength: 80
+        state:
+          type: string
+          minLength: 2
+          maxLength: 80
+        pincode:
+          type: string
+          pattern: '^[0-9]{6}$'
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          nullable: true
+          description: Must be sent together with longitude.
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          nullable: true
+          description: Must be sent together with latitude.
+        isDefault:
+          type: boolean
+
+    ProjectSite:
+      type: object
+      required: [id, siteName, line1, city, state, pincode, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        siteName:
+          type: string
+          example: Green Meadows Phase 2
+        contactName:
+          type: string
+          nullable: true
+        contactPhone:
+          type: string
+          nullable: true
+        line1:
+          type: string
+        line2:
+          type: string
+          nullable: true
+        landmark:
+          type: string
+          nullable: true
+        city:
+          type: string
+        state:
+          type: string
+        pincode:
+          type: string
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectSiteInput:
+      type: object
+      required: [siteName, line1, city, state, pincode]
+      description: On PATCH every field is optional; send only what changed.
+      properties:
+        siteName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        contactName:
+          type: string
+          maxLength: 120
+          nullable: true
+        contactPhone:
+          type: string
+          nullable: true
+        line1:
+          type: string
+          minLength: 3
+          maxLength: 200
+        line2:
+          type: string
+          maxLength: 200
+          nullable: true
+        landmark:
+          type: string
+          maxLength: 160
+          nullable: true
+        city:
+          type: string
+          minLength: 2
+          maxLength: 80
+        state:
+          type: string
+          minLength: 2
+          maxLength: 80
+        pincode:
+          type: string
+          pattern: '^[0-9]{6}$'
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+          nullable: true
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+          nullable: true
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
