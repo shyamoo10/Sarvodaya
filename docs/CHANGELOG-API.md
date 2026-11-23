@@ -5,6 +5,59 @@ Every pull request updates this file.
 
 ---
 
+## Step 5 - Admin tools, notifications and invoices
+
+**Branch:** `step-5-admin-notifications`
+**Version:** v1.4.0
+
+### Added endpoints
+
+| Method | Path | Auth | Purpose |
+| ------ | ---- | ---- | ------- |
+| GET | `/api/v1/admin/dashboard` | Bearer + Admin | Today's orders, pending deliveries, low stock, COD outstanding |
+| GET | `/api/v1/admin/customers` | Bearer + Admin | Customers with order totals and last order date |
+| GET | `/api/v1/admin/contractors` | Bearer + Admin | Contractors with order totals and credit position |
+| GET | `/api/v1/admin/reports/sales.xlsx` | Bearer + Admin | Excel sales report (orders + summary sheet) |
+| GET | `/api/v1/admin/reports/orders.xlsx` | Bearer + Admin | Excel report of every item sold |
+| GET | `/api/v1/admin/audit-logs` | Bearer + Admin | Audit trail of admin changes |
+| GET | `/api/v1/admin/notifications` | Bearer + Admin | Notification queue with attempts and last error |
+| POST | `/api/v1/admin/notifications/process` | Bearer + Admin | Send what is due now |
+| POST | `/api/v1/admin/notifications/{id}/retry` | Bearer + Admin | Put a failed message back in the queue |
+| GET | `/api/v1/me/notifications` | Bearer | My order messages |
+| POST / DELETE | `/api/v1/me/notifications/device-tokens` | Bearer | Register / remove a push token |
+| GET | `/api/v1/orders/{id}/invoice` | Bearer | Invoice PDF |
+| GET | `/api/v1/orders/{id}/invoice/details` | Bearer | Invoice record as JSON |
+| GET | `/api/v1/admin/orders/{id}/invoice` | Bearer + Admin | Download any invoice PDF |
+
+### Error codes introduced
+
+`REPORT_RANGE_INVALID` (400, `from` is after `to`),
+`INVOICE_NOT_AVAILABLE` (409), `NOTIFICATION_NOT_RETRYABLE` (409, only a failed message
+can be retried).
+
+### Notes for the frontend
+
+* **Dashboard** is one call: `today` (orders, cancelledOrders, salesPaise, byStatus),
+  `pendingDeliveries` (count + the soonest orders), `lowStock` (threshold, count, up to 20
+  products) and `cashOnDelivery` (orders, outstandingPaise). Send
+  `?lowStockThreshold=` if the shop wants a different cut-off than 10.
+* **Reports** are real `.xlsx` downloads: use the `Content-Disposition` file name and
+  open/save the bytes; do not paste them into a JSON viewer. The period defaults to the
+  last 30 days, and amounts in the sheet are rupees, not paise.
+* **Invoices**: the PDF is generated per request and safe to open inline. A buyer with a
+  GST number gets a TAX INVOICE with both GST numbers; everyone else gets a BILL with no
+  GSTIN. `kind` in the JSON tells you which, so you can label the receipt correctly.
+* **Notifications** are queued automatically and sent in the background — there is
+  nothing to call on checkout. Register a device with the push token on app start so the
+  customer also receives push; the token is not a phone number.
+  `GET /me/notifications` is the in-app inbox (poll it or refresh on order screens).
+  `status: FAILED` messages are ones the provider refused; the shop can retry them.
+* **Audit log** entries are `action` (`"PATCH /admin/products/:id/stock"`),
+  `entityType`/`entityId`, `actor`, `metadata` (the accepted body), `requestId` and
+  `createdAt`. Reads are never logged, so an empty trail means nobody changed anything.
+
+---
+
 ## Step 4 - Orders and payments
 
 **Branch:** `step-4-orders-payments`
