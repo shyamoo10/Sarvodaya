@@ -6,7 +6,9 @@ used by customers, contractors and the shop owner (admin).
 **Step 1: accounts and login.** **Step 2: product catalogue.**
 **Step 3: pricing, cart and delivery charges.**
 **Step 4: orders and payments.**
-**Step 5 (this branch): admin tools, notifications and invoices.**
+**Step 5: admin tools, notifications and invoices.**
+**Step 6 (this branch): final review - order isolation checks, list and search indexes, a
+deployment checklist and a one-page API summary.**
 
 Accounts and login:
 
@@ -376,11 +378,34 @@ restoring stock, forward-only statuses with history, charge waivers and reorder)
 (cash receipts, partial and full payment, Razorpay intents, checkout signature verification and the
 signed webhook), contractor credit terms (granting, switching off, and the credit limit),
 the admin dashboard (today's orders, pending deliveries, low stock with its threshold, COD
-outstanding), the customer and contractor lists with their totals, the Excel sales and order
+outstanding), order isolation (one account never lists, opens, cancels, reorders or
+invoices another account's order, and the `userId` filter is ignored for customers), the
+customer and contractor lists with their totals, the Excel sales and order
 reports including the invalid date range, the audit log (who changed what, reads and failed
 changes not logged, admin only), the notification queue (placed on checkout, confirmed,
 dispatched and delivered, push plus SMS, retries and the admin retry), and invoices (a bill
 without GST, a tax invoice with a buyer GSTIN, the PDF, and the frozen amount).
+
+## Isolation, indexes and the final review
+
+* **Ownership.** Every customer query is filtered by the id in the token, never by a value
+  the client sends: order list and detail, cancel, reorder, invoice, cart, addresses,
+  project sites and notifications. Another account's order id answers `404 NOT_FOUND`,
+  exactly like an id that does not exist, so nothing can be learned from the response. The
+  test `lists the order history and hides other accounts orders` covers the whole set,
+  including the ignored `userId` filter.
+* **Order lists.** `Order` is indexed on `(userId, placedAt)` for a customer's history and
+  `(status, placedAt)` for the admin list and the dashboard, plus `status`, `paymentStatus`
+  and `placedAt` on their own.
+* **Search.** Product search and the admin order search use `contains` (`ILIKE '%term%'`),
+  which a btree cannot serve. Migration `20261123123000_search_and_list_indexes` adds
+  `pg_trgm` GIN indexes on `Product.name`, `Product.brand`, `Product.sku`, `Order.orderNumber`
+  and `User.name`, and a btree on `(isActive, name)` for catalogue browsing. If the deploy
+  account cannot create the extension the migration says so and skips those indexes;
+  search keeps working on a sequential scan.
+* **Review documents.** [`docs/deployment-checklist.md`](docs/deployment-checklist.md) is
+  what to do before and after a deploy; [`docs/api-summary.md`](docs/api-summary.md) is the
+  one-page overview for the frontend developer.
 
 ## Project structure
 
@@ -428,6 +453,8 @@ docs/
   step4.schemas.yaml     Step 4 schemas
   step5.paths.yaml       Step 5 dashboard, notifications, invoices, reports, audit
   step5.schemas.yaml     Step 5 schemas
+  deployment-checklist.md what to set and check before and after a deploy
+  api-summary.md         one-page API overview for the frontend developer
   CHANGELOG-API.md       per-PR notes for the frontend developer
 tests/                   Vitest + Supertest integration tests
 ```
