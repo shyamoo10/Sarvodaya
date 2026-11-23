@@ -36,7 +36,16 @@ export function createApp(): Express {
   // Swagger UI relies on inline scripts, so CSP is disabled for the docs page.
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors(buildCorsOptions()));
-  app.use(express.json({ limit: '100kb' }));
+  // The raw body is kept for webhook signature checks: a Razorpay webhook is
+  // signed over the exact bytes received, not over the parsed object.
+  app.use(
+    express.json({
+      limit: '100kb',
+      verify: (req, _res, buffer) => {
+        (req as typeof req & { rawBody?: string }).rawBody = buffer.toString('utf8');
+      },
+    }),
+  );
 
   app.get('/health', (_req, res) => {
     res.status(200).json({ success: true, data: { status: 'ok', uptimeSeconds: Math.round(process.uptime()) } });

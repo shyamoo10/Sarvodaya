@@ -9,6 +9,10 @@ import { categoriesRouter, productsRouter } from './modules/catalog/catalog.rout
 import { cartRouter } from './modules/cart/cart.routes';
 import { adminPricingRouter } from './modules/pricing/admin-pricing.routes';
 import { adminDeliveryRouter } from './modules/delivery/admin-delivery.routes';
+import { ordersRouter } from './modules/orders/orders.routes';
+import { adminOrdersRouter } from './modules/orders/admin-orders.routes';
+import { paymentsRouter } from './modules/payments/payments.routes';
+import { adminCreditRouter } from './modules/credit/admin-credit.routes';
 
 export const apiRouter = Router();
 
@@ -17,11 +21,15 @@ apiRouter.use('/me/addresses', addressesRouter);
 apiRouter.use('/me/project-sites', projectSitesRouter);
 apiRouter.use('/me', meRouter);
 apiRouter.use('/cart', cartRouter);
+apiRouter.use('/orders', ordersRouter);
+apiRouter.use('/payments', paymentsRouter);
 // Admin routers are mounted before the user admin router so their own paths
 // (/admin/products, /admin/pricing/..., /admin/delivery/...) are handled here.
 apiRouter.use('/admin', adminCatalogRouter);
 apiRouter.use('/admin/pricing', adminPricingRouter);
 apiRouter.use('/admin/delivery', adminDeliveryRouter);
+apiRouter.use('/admin/orders', adminOrdersRouter);
+apiRouter.use('/admin/credit-terms', adminCreditRouter);
 apiRouter.use('/admin', adminRouter);
 apiRouter.use('/categories', categoriesRouter);
 apiRouter.use('/products', productsRouter);
