@@ -1,0 +1,197 @@
+# Step 3 cart paths, merged into openapi.yaml by docs.router.ts.
+paths:
+  /cart:
+    get:
+      tags:
+      - Cart
+      summary: My cart, priced
+      description: 'Prices every line with the shop''s rules (contractor special price, then bulk
+
+        quantity discount, then contractor percentage, then the normal price) and
+
+        returns every charge as its own line, so nothing has to be calculated in the app.
+
+
+        The delivery address is the one saved on the cart, else the account''s default
+
+        address. Without any address the cart is still returned, with
+
+        `requiresDeliveryAddress: true` and no delivery charge.
+
+
+        Delivery is refused with `PINCODE_NOT_SERVICEABLE` for a pincode the admin has
+
+        not approved, and with `OUT_OF_DELIVERY_RANGE` beyond the last distance slab.
+
+        '
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: addressId
+        in: query
+        description: Price for this address instead of the saved one.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Priced cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CartView'
+        '400':
+          description: PINCODE_NOT_SERVICEABLE or OUT_OF_DELIVERY_RANGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags:
+      - Cart
+      summary: Empty my cart
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The now empty cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CartView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /cart/items:
+    post:
+      tags:
+      - Cart
+      summary: Add a product to the cart
+      description: Adding a product already in the cart increases its quantity.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+      responses:
+        '201':
+          description: The updated priced cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CartView'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: NOT_FOUND - no such product, or the shop has hidden it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /cart/items/{id}:
+    parameters:
+    - $ref: '#/components/parameters/IdPath'
+    patch:
+      tags:
+      - Cart
+      summary: Set the quantity of a cart line
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartItemRequest'
+      responses:
+        '200':
+          description: The updated priced cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CartView'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Cart
+      summary: Remove a cart line
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The updated priced cart
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CartView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /cart/delivery:
+    put:
+      tags:
+      - Cart
+      summary: Choose the delivery address for this cart
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetCartDeliveryRequest'
+      responses:
+        '200':
+          description: The cart priced for that address
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/SuccessEnvelope'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/CartView'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'

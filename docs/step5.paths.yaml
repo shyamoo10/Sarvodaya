@@ -1,0 +1,526 @@
+# Step 5 paths (dashboard, notifications, invoices, reports and audit), merged by docs.router.ts.
+paths:
+  /me/notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Messages sent to the signed-in account
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, SENT, FAILED]
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum: [PUSH, SMS, WHATSAPP]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Messages, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/notifications/device-tokens:
+    post:
+      tags:
+        - Notifications
+      summary: Register this device for push notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenRegistration'
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags:
+        - Notifications
+      summary: Stop push notifications to this device
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '204':
+          description: Removed
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /orders/{id}/invoice:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+        - Orders
+      summary: The invoice PDF of an order
+      description: >-
+        Generated from the order's frozen prices. A buyer who gave a GST number gets a
+        TAX INVOICE; everyone else gets a plain BILL without any GSTIN.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The invoice PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /orders/{id}/invoice/details:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+        - Orders
+      summary: The invoice record as JSON
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The invoice
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Invoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/orders/{id}/invoice:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags:
+        - Admin
+      summary: Download any order's invoice PDF
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The invoice PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/dashboard:
+    get:
+      tags:
+        - Admin
+      summary: Today's orders, pending deliveries, low stock and COD outstanding
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lowStockThreshold
+          in: query
+          description: Products at or below this stock level count as running low.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10000
+            default: 10
+        - name: pendingLimit
+          in: query
+          description: How many pending orders to list.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: The dashboard
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminDashboard'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/notifications:
+    get:
+      tags:
+        - Admin
+      summary: The notification queue, with attempts and the last error
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, SENT, FAILED]
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum: [PUSH, SMS, WHATSAPP]
+        - name: event
+          in: query
+          schema:
+            type: string
+            enum: [ORDER_PLACED, ORDER_CONFIRMED, ORDER_DISPATCHED, ORDER_DELIVERED]
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Queued and sent messages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/notifications/process:
+    post:
+      tags:
+        - Admin
+      summary: Send whatever is due right now
+      description: The background worker does this on a timer; this call is for the shop to force it.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 200
+                  default: 25
+      responses:
+        '200':
+          description: What the run did
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          sent:
+                            type: integer
+                          retrying:
+                            type: integer
+                          failed:
+                            type: integer
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/notifications/{id}/retry:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    post:
+      tags:
+        - Admin
+      summary: Put a failed notification back in the queue
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Back in the queue
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Notification'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: NOTIFICATION_NOT_RETRYABLE - only a failed message can be retried
+
+  /admin/audit-logs:
+    get:
+      tags:
+        - Admin
+      summary: Every admin change, newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: actorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: entityType
+          in: query
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: Case-insensitive substring, for example "/admin/products".
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLogEntry'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/reports/sales.xlsx:
+    get:
+      tags:
+        - Admin
+      summary: Sales report as an Excel workbook
+      description: >-
+        One row per order with every money column and a summary sheet. Amounts are
+        rupees in the sheet. The period defaults to the last 30 days.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: paymentStatus
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
+      responses:
+        '200':
+          description: The workbook
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: REPORT_RANGE_INVALID - "from" is after "to"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/reports/orders.xlsx:
+    get:
+      tags:
+        - Admin
+      summary: Order report at item level (one row per line sold)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: paymentStatus
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
+      responses:
+        '200':
+          description: The workbook
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: REPORT_RANGE_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/customers:
+    get:
+      tags:
+        - Admin
+      summary: Customers with their order history totals
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: Name, phone or company.
+          schema:
+            type: string
+            maxLength: 80
+        - name: isBlocked
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Customers page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CustomerSummary'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/contractors:
+    get:
+      tags:
+        - Admin
+      summary: Contractors with purchase totals and their credit position
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 80
+        - name: isBlocked
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Contractors page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ContractorSummary'
+                      meta:
+                        $ref: '#/components/schemas/PaginationMeta'
+        '403':
+          $ref: '#/components/responses/Forbidden'
