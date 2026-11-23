@@ -3,7 +3,8 @@
 Backend for **Sarvodaya**, a hardware shop app (TMT steel, cement, paint, nuts, bolts, screws)
 used by customers, contractors and the shop owner (admin).
 
-**Step 1: accounts and login.** **Step 2 (this branch): product catalogue.**
+**Step 1: accounts and login.** **Step 2: product catalogue.**
+**Step 3 (this branch): pricing, cart and delivery charges.**
 
 Accounts and login:
 
@@ -27,6 +28,21 @@ Catalogue:
 * Admin can add, edit and hide products, change stock with an absolute value or an adjustment,
   and bulk import from Excel with a row-by-row error report.
 * The seed script fills 21 categories and 33 realistic products, safely re-runnable.
+
+Pricing, cart and delivery:
+
+* Automatic pricing, no quotes and no approvals: contractor special price first, then bulk
+  quantity discount, then contractor percentage rule (for example 5% off cement), then the normal
+  price. Every cart line returns `unitPricePaise`, `originalPricePaise` and `appliedRule`.
+* A server-side cart per account, so it survives app restarts. Each line is priced on every read.
+* Charges returned as separate lines: item total, minimum-order charge (with
+  `amountToAvoidChargePaise` for "add ₹200 more to remove this charge"), distance charge from the
+  shop using admin-defined distance slabs, free delivery above an amount or within a radius, and
+  the grand total.
+* Delivery only to approved pincodes, with a polite error otherwise; beyond the last slab the
+  cart answers `OUT_OF_DELIVERY_RANGE`.
+* Admins manage all of it through APIs: settings, contractor prices, bulk discounts, contractor
+  rules, slabs and pincodes. No code change needed to alter any amount or area.
 
 ## Stack
 
@@ -94,6 +110,7 @@ Everything is declared in [`.env.example`](.env.example). Never commit `.env`.
 | `SEED_ADMIN_PHONE` | no | default `9999999999` |
 | `SEED_SAMPLE_USERS` | no | default `true`; `false` seeds only the admin |
 | `SEED_SAMPLE_PRODUCTS` | no | default `true`; `false` skips the catalogue seed |
+| `SEED_PRICING` | no | default `true`; `false` skips the pricing, slabs and pincode seed |
 
 Generate secrets with:
 
@@ -109,6 +126,10 @@ openssl rand -hex 32
 * Seed catalogue: 21 categories (5 parents) and 33 products with SKUs like `STL-TMT-008` and
   `CEM-ULT-PPC`. Re-running `npm run seed` never duplicates them and never overwrites prices or
   stock the owner has changed.
+* Seed pricing: shop at Pune 18.5204/73.8567, minimum order ₹2,000 with a ₹100 charge, free above
+  ₹15,000 or within 3 km, three slabs (0–5 km ₹100, 5–15 km ₹250, 15–30 km ₹500), six approved
+  pincodes, 5% off cement and 3% off paint for contractors, 3% off from 10 units and 5% off from
+  50 bags of cement, and one contractor special price on TMT steel.
 
 ## Scripts
 
@@ -150,6 +171,21 @@ health check: `/health`.
 | GET / PATCH | `/admin/products/{id}` | Bearer + Admin |
 | PATCH | `/admin/products/{id}/stock` | Bearer + Admin |
 | POST | `/admin/products/import` | Bearer + Admin |
+| GET / DELETE | `/cart` | Bearer |
+| POST | `/cart/items` | Bearer |
+| PATCH / DELETE | `/cart/items/{id}` | Bearer |
+| PUT | `/cart/delivery` | Bearer |
+| GET / PATCH | `/admin/pricing/settings` | Bearer + Admin |
+| GET / POST | `/admin/pricing/contractor-prices` | Bearer + Admin |
+| PATCH / DELETE | `/admin/pricing/contractor-prices/{id}` | Bearer + Admin |
+| GET / POST | `/admin/pricing/bulk-discounts` | Bearer + Admin |
+| PATCH / DELETE | `/admin/pricing/bulk-discounts/{id}` | Bearer + Admin |
+| GET / POST | `/admin/pricing/contractor-rules` | Bearer + Admin |
+| PATCH / DELETE | `/admin/pricing/contractor-rules/{id}` | Bearer + Admin |
+| GET / POST | `/admin/delivery/slabs` | Bearer + Admin |
+| PATCH / DELETE | `/admin/delivery/slabs/{id}` | Bearer + Admin |
+| GET / POST | `/admin/delivery/pincodes` | Bearer + Admin |
+| PATCH / DELETE | `/admin/delivery/pincodes/{pincode}` | Bearer + Admin |
 
 ### Response formats
 
@@ -214,6 +250,47 @@ the spreadsheet `row` (header is row 1), `sku`, failing `field` and a human `mes
 are saved even when other rows fail, and a re-import never changes `isActive`, so a hidden
 product stays hidden.
 
+## Pricing rules
+
+Each line is priced in this order and the **first match wins** — discounts never stack:
+
+1. **Contractor special price** — an active `ContractorPrice` for this contractor and product.
+2. **Bulk quantity discount** — the best active `BulkDiscount` whose `minQuantity` the line meets.
+   Product rules beat category rules (sub-categories included), category rules beat shop-wide
+   ones; at equal scope the highest `minQuantity` wins, then the highest discount.
+3. **Contractor percentage rule** — an active `ContractorRule` for contractors, either for the
+   product's category (sub-categories included) or shop-wide.
+4. **Normal price** — the catalogue price.
+
+Percentages are stored as basis points (`discountBps`, `500` = 5%) and every discounted price is
+`max(1, round(price × (10000 − bps) / 10000))`, so a price never reaches zero.
+
+## Cart and delivery charges
+
+`GET /cart` prices the stored cart again on every read and returns the lines plus three charge
+lines the app shows separately:
+
+* `ITEM_TOTAL` — the sum of the priced lines.
+* `MIN_ORDER_CHARGE` — added when the item total is below `minOrderAmountPaise`, together with
+  `amountToAvoidChargePaise` so the app can say "add ₹200 more to remove this charge".
+* `DISTANCE_CHARGE` — from the shop location to the cart's delivery address using the active
+distance slabs. It is `0` when the order is above `freeDeliveryAbovePaise` or the address is
+within `freeDeliveryRadiusKm`.
+
+`grandTotalPaise` is the item total plus the two charges. The delivery address comes from
+`?addressId`, else the cart's saved address, else the account's default (or newest) address; with
+no address at all the cart still answers `200` with `delivery: null` and
+`requiresDeliveryAddress: true`, and `PUT /cart/delivery` sets it.
+
+Delivery is limited to the **approved pincodes**: an address outside them answers
+`400 PINCODE_NOT_SERVICEABLE`, and one past the last slab answers `400 OUT_OF_DELIVERY_RANGE`
+with the distance in `details.distanceKm`. Both messages are written for customers, not logs.
+
+Everything here is data: the minimum order, its charge, the free-delivery amount and radius, the
+slabs, the pincodes, the contractor prices, the bulk discounts and the contractor rules are all
+managed through `/admin/pricing/*` and `/admin/delivery/*`, so changing any amount or area needs
+no code change.
+
 ## Tests
 
 ```bash
@@ -236,28 +313,43 @@ sign-up rules (account type, admin rejection), blocked-account login refusal, pr
 GST validation, address and project-site CRUD with ownership isolation, the admin block/unblock
 flow, the public catalogue (tree, search, filters, sorting, pagination, hidden products, stock
 flag), admin catalogue CRUD and stock changes, and the Excel import (create, re-run update,
-per-row error report, hidden products staying hidden, bad files).
+per-row error report, hidden products staying hidden, bad files), the pricing order (normal,
+bulk, contractor percentage, contractor special price, most specific rule wins, inactive rules
+ignored), the server-side cart (persistence, add/update/remove/clear, hidden products), the
+charges (minimum order with the amount to avoid it, distance slabs, free delivery by amount and
+by radius), the delivery restrictions (unapproved pincode, beyond the last slab, no address), and
+the admin pricing and delivery APIs including slab overlap and duplicate pincodes.
 
 ## Project structure
 
 ```
 prisma/
-  schema.prisma          data model (users, addresses, project sites, catalogue)
+  schema.prisma          data model (users, addresses, project sites, catalogue, pricing, cart)
   migrations/            SQL migrations, applied by `prisma migrate deploy`
   seed.ts                admin, sample users, categories and products (idempotent)
+  pricing.seed.ts        shop settings, slabs, pincodes, contractor prices and discount rules
 src/
   app.ts                 Express app factory (CORS, helmet, docs, error handling)
   index.ts               server bootstrap + graceful shutdown
   config/                validated env and the stable error-code list
-  lib/                   Prisma, Redis, JWT, OTP hashing, HTTP helpers, logger
+  lib/                   Prisma, Redis, JWT, OTP hashing, geo, HTTP helpers, logger
   middleware/            request id, auth, admin guard, validation, error handler
   modules/auth/          OTP request/verify, OTP store, SMS provider interface
   modules/users/         profile, saved addresses, project sites
   modules/catalog/       categories, products, admin CRUD, Excel import
+  modules/pricing/       pricing engine, settings, contractor prices, bulk and contractor rules
+  modules/cart/          server-side cart, priced lines and charges
+  modules/delivery/      distance slabs, serviceable pincodes, delivery quote
   modules/admin/         user list, block/unblock
   docs/                  Swagger UI + raw OpenAPI
+  routes.ts              mounts every module router
+  routes/                route table
+  utils/                 small shared helpers
+  docs/                  Swagger UI + raw OpenAPI (merged from docs/*.yaml)
 docs/
-  openapi.yaml           the contract the frontend builds against
+  openapi.yaml           root of the contract the frontend builds against
+  *.paths.yaml           paths per step and area
+  *.schemas.yaml         component schemas
   CHANGELOG-API.md       per-PR notes for the frontend developer
 tests/                   Vitest + Supertest integration tests
 ```
