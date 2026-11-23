@@ -183,6 +183,37 @@ describe('orders', () => {
       .set(auth(other.token));
     expect(hidden.status).toBe(404);
 
+    // The other account's list is empty: filtering is on the token, never on a
+    // query parameter the client could change.
+    const theirList = await api().get(`${API}/orders`).set(auth(other.token));
+    expect(theirList.body.data).toHaveLength(0);
+    expect(theirList.body.meta.total).toBe(0);
+
+    // Nor can they act on it, or read its paperwork.
+    const theirCancel = await api()
+      .post(`${API}/orders/${order.body.data.id}/cancel`)
+      .set(auth(other.token))
+      .send({});
+    expect(theirCancel.status).toBe(404);
+
+    const theirReorder = await api()
+      .post(`${API}/orders/${order.body.data.id}/reorder`)
+      .set(auth(other.token));
+    expect(theirReorder.status).toBe(404);
+
+    const theirInvoice = await api()
+      .get(`${API}/orders/${order.body.data.id}/invoice`)
+      .set(auth(other.token));
+    expect(theirInvoice.status).toBe(404);
+
+    // Even with somebody else's id in the filter, the admin-only filter is not
+    // honoured for a customer.
+    const filtered = await api()
+      .get(`${API}/orders?userId=${other.user.id}`)
+      .set(auth(token));
+    expect(filtered.body.data).toHaveLength(1);
+    expect(filtered.body.data[0].id).toBe(order.body.data.id);
+
     const anonymous = await api().get(`${API}/orders`);
     expect(anonymous.status).toBe(401);
   });
