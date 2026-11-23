@@ -31,6 +31,13 @@ const rawEnvSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((value) => value === 'true'),
+
+  // Razorpay. Optional: without keys the online payment endpoints answer
+  // PAYMENT_NOT_CONFIGURED, while Cash on Delivery and credit orders still work.
+  RAZORPAY_KEY_ID: z.string().trim().optional(),
+  RAZORPAY_KEY_SECRET: z.string().trim().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().trim().optional(),
+  RAZORPAY_BASE_URL: z.string().url().default('https://api.razorpay.com'),
 });
 
 const parsed = rawEnvSchema.safeParse(process.env);
@@ -97,6 +104,16 @@ export const env = {
       nodeEnv: raw.NODE_ENV,
       enabled: raw.DEV_FIXED_OTP_ENABLED,
     }),
+  },
+  razorpay: {
+    keyId: raw.RAZORPAY_KEY_ID ?? '',
+    keySecret: raw.RAZORPAY_KEY_SECRET ?? '',
+    webhookSecret: raw.RAZORPAY_WEBHOOK_SECRET ?? '',
+    baseUrl: raw.RAZORPAY_BASE_URL,
+    // Online payment needs a key pair; the webhook secret is optional but
+    // recommended, and without it the webhook endpoint stays closed.
+    isConfigured: Boolean(raw.RAZORPAY_KEY_ID && raw.RAZORPAY_KEY_SECRET),
+    isWebhookConfigured: Boolean(raw.RAZORPAY_WEBHOOK_SECRET),
   },
 } as const;
 
